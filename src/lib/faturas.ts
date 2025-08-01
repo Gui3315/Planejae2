@@ -36,20 +36,21 @@ export function getPeriodoFatura(melhorDia: number, referencia: Date): { inicio:
  * @returns Date de vencimento da fatura
  */
 export function getVencimentoFatura(melhorDia: number, vencimento: number, dataCompra: Date): Date {
-  // Descobre o ciclo da fatura da compra
+  // 🔖 LÓGICA CORRETA: O vencimento é sempre no mês seguinte ao fim do ciclo ativo na data da compra
   const { fim } = getPeriodoFatura(melhorDia, dataCompra);
-
-  // O vencimento é sempre no mês seguinte ao fim do ciclo
-  let anoVenc = fim.getFullYear();
-  let mesVenc = fim.getMonth() + 1; // mês seguinte
-
-  if (mesVenc > 11) {
-    mesVenc = 0;
-    anoVenc += 1;
+  
+  // O vencimento é no mês seguinte ao fim do ciclo
+  let mesVencimento = fim.getMonth() + 1;
+  let anoVencimento = fim.getFullYear();
+  
+  // Ajustar se passar de dezembro
+  if (mesVencimento > 11) {
+    mesVencimento = 0;
+    anoVencimento += 1;
   }
 
   // Retorna a data de vencimento
-  return new Date(anoVenc, mesVenc, vencimento);
+  return new Date(anoVencimento, mesVencimento, vencimento);
 }
 
 /**

@@ -10,6 +10,7 @@ import ContasFixas from "./pages/ContasFixas";
 import NovaContaParcelada from "./pages/NovaContaParcelada";
 import Categorias from "./pages/Categorias";
 import Faturas from "./pages/Faturas";
+import Renda from "./pages/Renda";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
                   <Route path="/nova-conta-parcelada" element={<NovaContaParcelada />} />
         <Route path="/categorias" element={<Categorias />} />
         <Route path="/faturas" element={<Faturas />} />
+        <Route path="/renda" element={<Renda />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
