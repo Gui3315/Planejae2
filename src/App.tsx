@@ -12,6 +12,7 @@ import Categorias from "./pages/Categorias";
 import Faturas from "./pages/Faturas";
 import Renda from "./pages/Renda";
 import NotFound from "./pages/NotFound";
+import GerenciarCategorias from "./pages/gerenciar-categorias";
 
 const queryClient = new QueryClient();
 
@@ -22,6 +23,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
+          <Route path="/gerenciar-categorias" element={<GerenciarCategorias />} />
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/cartoes" element={<Cartoes />} />

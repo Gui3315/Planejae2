@@ -52,6 +52,7 @@ CREATE TABLE public.contas (
 CREATE TABLE public.parcelas (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   conta_id UUID NOT NULL REFERENCES public.contas(id) ON DELETE CASCADE,
+  categoria_id UUID REFERENCES public.categorias(id),
   numero_parcela INTEGER NOT NULL,
   valor_parcela DECIMAL(10,2) NOT NULL,
   data_vencimento DATE NOT NULL,
