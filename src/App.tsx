@@ -13,6 +13,7 @@ import Faturas from "./pages/Faturas";
 import Renda from "./pages/Renda";
 import NotFound from "./pages/NotFound";
 import GerenciarCategorias from "./pages/gerenciar-categorias";
+import ResetPassword from "./pages/reset-password";
 
 const queryClient = new QueryClient();
 
@@ -23,6 +24,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/gerenciar-categorias" element={<GerenciarCategorias />} />
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
