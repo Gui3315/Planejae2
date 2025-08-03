@@ -6,6 +6,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { supabase } from "../integrations/supabase/client"
 import type { User } from "@supabase/supabase-js"
+import { useAuthSession } from "../hooks/useAuthSession"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -43,6 +44,7 @@ interface Cartao {
 }
 
 const NovaContaParcelada: React.FC = () => {
+  const { user, loading: authLoading } = useAuthSession()
   const [tipoParcelamento, setTipoParcelamento] = useState<"cartao" | "carne">("cartao")
   const [titulo, setTitulo] = useState("")
   const [valorTotal, setValorTotal] = useState("")
@@ -56,7 +58,6 @@ const NovaContaParcelada: React.FC = () => {
   const [categorias, setCategorias] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
-  const [user, setUser] = useState<User | null>(null)
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const navigate = useNavigate()
 
@@ -258,33 +259,6 @@ const NovaContaParcelada: React.FC = () => {
       }
     }
   }, [cartaoId, tipoParcelamento, cartoes, parcelaInicial, dadosRecarregados])
-
-  useEffect(() => {
-    const checkAuth = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession()
-      if (session?.user) {
-        setUser(session.user)
-      } else {
-        navigate("/auth")
-      }
-    }
-
-    checkAuth()
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-      } else {
-        navigate("/auth")
-      }
-    })
-
-    return () => subscription.unsubscribe()
-  }, [navigate])
 
   function limparFormulario() {
     setTitulo("")

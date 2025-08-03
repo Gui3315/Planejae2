@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { supabase } from '@/integrations/supabase/client';
-import { User } from '@supabase/supabase-js';
+import { useAuthSession } from '@/hooks/useAuthSession';
 import { 
   DollarSign,
   BarChart3, 
@@ -87,7 +87,7 @@ interface FaturaCartao {
 }
 
 const Index = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const { user, loading } = useAuthSession();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [cartoes, setCartoes] = useState<Cartao[]>([]);
   const [contas, setContas] = useState<Conta[]>([]);
@@ -98,40 +98,19 @@ const Index = () => {
   const [contasFixas, setContasFixas] = useState<Conta[]>([]); // Contas fixas para gastos
   const [parcelasCarne, setParcelasCarne] = useState<Parcela[]>([]); // Parcelas de carnê para gastos
   const [tiposRenda, setTiposRenda] = useState<TipoRenda[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   // Estado do mês atual
   const [mesAtual] = useState(new Date().getMonth());
   const [anoAtual] = useState(new Date().getFullYear());
 
+  // Carregar dados quando o usuário estiver disponível
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        await carregarDados(session.user.id);
-      } else {
-        navigate('/auth');
-      }
-      
-      setLoading(false);
-    });
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        await carregarDados(session.user.id);
-      } else {
-        navigate('/auth');
-      }
-      
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [navigate]);
+    if (user) {
+      carregarDados(user.id);
+    }
+  }, [user]);
 
   // 🔖 NOVO: Recarregar dados automaticamente a cada 30 segundos
   useEffect(() => {
@@ -142,6 +121,22 @@ const Index = () => {
     }, 30000); // 30 segundos
 
     return () => clearInterval(interval);
+  }, [user]);
+
+  // 🔖 NOVO: Recarregar dados quando a aba voltar a ficar ativa
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && user) {
+        console.log('🔄 Aba voltou a ficar ativa, recarregando dados...');
+        carregarDados(user.id);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [user]);
 
   // Função para calcular o limite disponível de um cartão
@@ -170,11 +165,20 @@ const Index = () => {
   const carregarDados = async (userId: string) => {
     try {
       // Carregar perfil
-      const { data: profileData } = await supabase
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
+      
+      if (profileError) {
+        console.error('Erro ao carregar perfil:', profileError);
+        if (profileError.code === 'PGRST301') {
+          // Usuário não autorizado, redirecionar para login
+          navigate('/auth');
+          return;
+        }
+      }
       
       if (profileData) setProfile(profileData);
 
@@ -282,8 +286,9 @@ const Index = () => {
         }
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erro ao carregar dados:', error);
+      setError(error?.message || 'Erro ao carregar dados. Verifique sua conexão ou tente novamente.');
     }
   };
 
@@ -470,6 +475,12 @@ const Index = () => {
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
           <p className="text-xl text-white shadow-lg">Carregando...</p>
+          {error && (
+            <div className="mt-6 p-4 bg-red-900/40 border border-red-500/30 rounded-xl text-red-200 shadow-lg">
+              <p className="font-semibold">{error}</p>
+              <p className="text-sm text-red-300 mt-2">Se o problema persistir, verifique sua conexão ou tente recarregar a página.</p>
+            </div>
+          )}
         </div>
       </div>
     );

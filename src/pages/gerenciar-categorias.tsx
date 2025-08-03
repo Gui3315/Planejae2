@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Checkbox } from "@/components/ui/checkbox"
 import { supabase } from "@/integrations/supabase/client"
 import type { User } from "@supabase/supabase-js"
+import { useAuthSession } from "../hooks/useAuthSession"
 import {
   ArrowLeft,
   BarChart3,
@@ -76,7 +77,7 @@ interface FiltrosRelatorio {
 }
 
 const GerenciarCategorias = () => {
-  const [user, setUser] = useState<User | null>(null)
+  const { user, loading: authLoading } = useAuthSession()
   const [loading, setLoading] = useState(true)
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [cartoes, setCartoes] = useState<Cartao[]>([])
@@ -98,56 +99,17 @@ const GerenciarCategorias = () => {
   const navigate = useNavigate()
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-
-        if (session?.user) {
-          setUser(session.user)
-          // 🔖 Só carrega dados se o usuário mudou
-          if (session.user.id !== userIdCarregado) {
-            await carregarDados(session.user.id)
-            setUserIdCarregado(session.user.id)
-          }
-        } else {
-          navigate("/auth")
-        }
-      } catch (error) {
-        console.error("Erro ao verificar autenticação:", error)
-        navigate("/auth")
-      } finally {
-        setLoading(false)
-      }
+    if (user && user.id !== userIdCarregado) {
+      carregarDados(user.id)
+      setUserIdCarregado(user.id)
     }
-
-    checkAuth()
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        // 🔖 Só carrega dados se o usuário mudou
-        if (session.user.id !== userIdCarregado) {
-          await carregarDados(session.user.id)
-          setUserIdCarregado(session.user.id)
-        }
-      } else {
-        navigate("/auth")
-      }
-      setLoading(false)
-    })
-
-    return () => subscription.unsubscribe()
-    // 🔖 userIdCarregado como dependência para garantir atualização correta
-  }, [navigate, userIdCarregado])
+  }, [user, userIdCarregado])
 
   // (Removido o useEffect que chamava gerarRelatorio automaticamente)
 
   const carregarDados = async (userId: string) => {
     try {
+      setLoading(true)
       // Carregar categorias
       const { data: categoriasData, error: categoriasError } = await supabase
         .from("categorias")
@@ -170,6 +132,8 @@ const GerenciarCategorias = () => {
       setCartoes(cartoesData || [])
     } catch (error) {
       console.error("Erro ao carregar dados:", error)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -326,7 +290,7 @@ const GerenciarCategorias = () => {
     }
   }
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
         <div className="text-center">

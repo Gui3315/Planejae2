@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { supabase } from "@/integrations/supabase/client"
 import type { User } from "@supabase/supabase-js"
+import { useAuthSession } from "../hooks/useAuthSession"
 import {
   CreditCard,
   Plus,
@@ -77,7 +78,7 @@ interface Categoria {
 }
 
 const Cartoes = () => {
-  const [user, setUser] = useState<User | null>(null)
+  const { user, loading: authLoading } = useAuthSession()
   const [cartoes, setCartoes] = useState<Cartao[]>([])
   const [contasParceladas, setContasParceladas] = useState<any[]>([])
   const [parcelas, setParcelas] = useState<any[]>([])
@@ -98,42 +99,10 @@ const Cartoes = () => {
   const navigate = useNavigate()
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-
-        if (session?.user) {
-          setUser(session.user)
-          await carregarCartoes(session.user.id)
-        } else {
-          navigate("/auth")
-        }
-      } catch (error) {
-        console.error("Erro ao verificar autenticação:", error)
-        navigate("/auth")
-      } finally {
-        setLoading(false)
-      }
+    if (user) {
+      carregarCartoes(user.id)
     }
-
-    checkAuth()
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        await carregarCartoes(session.user.id)
-      } else {
-        navigate("/auth")
-      }
-      setLoading(false)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [navigate])
+  }, [user])
 
   const calcularLimiteDisponivel = (cartao: Cartao) => {
     const limiteCartao = cartao.limite_credito || 0
@@ -179,6 +148,7 @@ const Cartoes = () => {
 
   const carregarCartoes = async (userId: string) => {
     try {
+      setLoading(true)
       const { data, error } = await supabase
         .from("cartoes")
         .select("*")
@@ -195,6 +165,8 @@ const Cartoes = () => {
       await carregarCategorias(userId)
     } catch (error) {
       console.error("Erro ao carregar cartões:", error)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -335,7 +307,7 @@ const Cartoes = () => {
     return Math.ceil(diff / (1000 * 3600 * 24))
   }
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
         <div className="text-center">

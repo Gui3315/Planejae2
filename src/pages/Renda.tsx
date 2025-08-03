@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Switch } from '@/components/ui/switch';
 import { supabase } from '@/integrations/supabase/client';
-import { User } from '@supabase/supabase-js';
+import { useAuthSession } from '@/hooks/useAuthSession';
 import { 
   DollarSign, 
   Plus, 
@@ -40,9 +40,8 @@ interface FormData {
 }
 
 const Renda = () => {
-  const [user, setUser] = useState<User | null>(null);
+  const { user, loading } = useAuthSession();
   const [tiposRenda, setTiposRenda] = useState<TipoRenda[]>([]);
-  const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingTipoRenda, setEditingTipoRenda] = useState<TipoRenda | null>(null);
   const [formData, setFormData] = useState<FormData>({
@@ -54,41 +53,12 @@ const Renda = () => {
   const [message, setMessage] = useState<{type: 'success' | 'error', text: string} | null>(null);
   const navigate = useNavigate();
 
-  // Verificar autenticação ao carregar a página
+  // Carregar tipos de renda quando o usuário estiver disponível
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        
-        if (session?.user) {
-          setUser(session.user);
-          await carregarTiposRenda(session.user.id);
-        } else {
-          navigate('/auth');
-        }
-      } catch (error) {
-        console.error('Erro ao verificar autenticação:', error);
-        navigate('/auth');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkAuth();
-
-    // Listener para mudanças de autenticação
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        await carregarTiposRenda(session.user.id);
-      } else {
-        navigate('/auth');
-      }
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, [navigate]);
+    if (user) {
+      carregarTiposRenda(user.id);
+    }
+  }, [user]);
 
   // Função para carregar tipos de renda do usuário
   const carregarTiposRenda = async (userId: string) => {

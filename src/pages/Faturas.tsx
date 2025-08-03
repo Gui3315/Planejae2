@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { supabase } from "../integrations/supabase/client"
-import type { User } from "@supabase/supabase-js"
+import { useAuthSession } from '@/hooks/useAuthSession'
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -86,7 +86,7 @@ interface Pagamento {
 }
 
 const Faturas = () => {
-  const [user, setUser] = useState<User | null>(null)
+  const { user, loading: authLoading } = useAuthSession()
   const [cartoes, setCartoes] = useState<Cartao[]>([])
   const [parcelas, setParcelas] = useState<any[]>([])
   const [contas, setContas] = useState<Conta[]>([])
@@ -113,42 +113,10 @@ const Faturas = () => {
   }
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-
-        if (session?.user) {
-          setUser(session.user)
-          await carregarDados(session.user.id)
-        } else {
-          navigate("/auth")
-        }
-      } catch (error) {
-        console.error("Erro ao verificar autenticação:", error)
-        navigate("/auth")
-      } finally {
-        setLoading(false)
-      }
+    if (user) {
+      carregarDados(user.id)
     }
-
-    checkAuth()
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        await carregarDados(session.user.id)
-      } else {
-        navigate("/auth")
-      }
-      setLoading(false)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [navigate])
+  }, [user])
 
   useEffect(() => {
     if (!user) return
@@ -778,7 +746,7 @@ const Faturas = () => {
     }
   }
 
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
         <div className="text-center">

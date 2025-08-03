@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { supabase } from "@/integrations/supabase/client"
 import type { User } from "@supabase/supabase-js"
+import { useAuthSession } from "../hooks/useAuthSession"
 import { Tag, Plus, Edit, Trash2, ArrowLeft, Palette, Sparkles, Hash, CheckCircle, AlertCircle } from "lucide-react"
 
 // Interface para categoria
@@ -37,7 +38,7 @@ interface FormData {
 }
 
 const Categorias = () => {
-  const [user, setUser] = useState<User | null>(null)
+  const { user, loading: authLoading } = useAuthSession()
   const [categorias, setCategorias] = useState<Categoria[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -50,49 +51,17 @@ const Categorias = () => {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const navigate = useNavigate()
 
-  // Verificar autenticação ao carregar a página
+  // Carregar categorias quando o usuário estiver disponível
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession()
-
-        if (session?.user) {
-          setUser(session.user)
-          await carregarCategorias(session.user.id)
-        } else {
-          navigate("/auth")
-        }
-      } catch (error) {
-        console.error("Erro ao verificar autenticação:", error)
-        navigate("/auth")
-      } finally {
-        setLoading(false)
-      }
+    if (user) {
+      carregarCategorias(user.id)
     }
-
-    checkAuth()
-
-    // Listener para mudanças de autenticação
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setUser(session.user)
-        await carregarCategorias(session.user.id)
-      } else {
-        navigate("/auth")
-      }
-      setLoading(false)
-    })
-
-    return () => subscription.unsubscribe()
-  }, [navigate])
+  }, [user])
 
   // Função para carregar categorias do usuário
   const carregarCategorias = async (userId: string) => {
     try {
+      setLoading(true)
       const { data, error } = await supabase
         .from("categorias")
         .select("*")
@@ -107,6 +76,8 @@ const Categorias = () => {
       setCategorias(data || [])
     } catch (error) {
       console.error("Erro ao carregar categorias:", error)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -201,7 +172,7 @@ const Categorias = () => {
   }
 
   // Tela de carregamento
-  if (loading) {
+  if (authLoading || loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
         <div className="text-center">
