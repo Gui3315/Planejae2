@@ -1,19 +1,19 @@
-# Pocket Finances Hub (CAP - Contas a Pagar)
+# Planejaê
 
-Este projeto é um sistema completo para controle financeiro pessoal, desenvolvido em React + TypeScript e integrado ao Supabase. Ele permite ao usuário gerenciar cartões de crédito, contas fixas, compras parceladas, categorias de despesas, rendas e faturas, tudo em um painel interativo e fácil de usar.
+Este projeto é um sistema completo para controle financeiro pessoal, desenvolvido em React + TypeScript e integrado ao Supabase. Ele permite ao usuário gerenciar cartões de crédito, despesas fixas, compras parceladas, categorias de despesas, rendas e faturas, tudo em um painel interativo e fácil de usar.
 
 ## Funcionalidades
 
 - **Dashboard:** Resumo financeiro do mês, saldo disponível, gastos, vencimentos próximos e ações rápidas.
 - **Autenticação:** Login, cadastro e recuperação de senha via Supabase.
 - **Cartões de Crédito:** Cadastro, edição, exclusão e controle de limite, vencimento e faturas.
-- **Contas Fixas:** Gerenciamento de despesas recorrentes e carnês.
-- **Compras Parceladas:** Cadastro de contas parceladas, cálculo automático de parcelas e vinculação a cartões.
+- **Despesas Fixas:** Gerenciamento de despesas recorrentes e carnês.
+- **Compras Parceladas:** Cadastro de despesas parceladas, cálculo automático de parcelas e vinculação a cartões.
 - **Categorias:** Criação, edição, exclusão e relatório detalhado de gastos por categoria.
 - **Rendas:** Cadastro e controle de fontes de renda mensais.
 - **Faturas:** Controle de faturas de cartão, pagamento e acompanhamento de status.
 - **Relatórios:** Estatísticas e gráficos de gastos por categoria, mês, cartão, etc.
-- **Alertas:** Notificações de contas e faturas a vencer.
+- **Alertas:** Notificações de despesas e faturas a vencer.
 
 ## Tecnologias Utilizadas
 
@@ -42,7 +42,7 @@ Este projeto é um sistema completo para controle financeiro pessoal, desenvolvi
 
 ## Estrutura de Pastas
 
-- `src/pages/` — Páginas principais do sistema (dashboard, cartões, contas, faturas, etc.)
+- `src/pages/` — Páginas principais do sistema (dashboard, cartões, despesas, faturas, etc.)
 - `src/components/` — Componentes reutilizáveis de UI
 - `src/hooks/` — Hooks customizados
 - `src/integrations/supabase/` — Integração com Supabase
