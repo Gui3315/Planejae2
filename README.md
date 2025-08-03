@@ -68,7 +68,7 @@ Veja abaixo exemplos visuais do sistema:
 > Adicione aqui suas imagens de tela. Exemplo:
 
 ![Login Page]
-<img width="1913" height="898" alt="image" src="https://github.com/user-attachments/assets/a85a12f7-3e4f-48ff-a76a-ab726a456486" />
+<img src="https://github.com/user-attachments/assets/a85a12f7-3e4f-48ff-a76a-ab726a456486" alt="Login Page" width="800" />
 
 ![Dashboard]
 <img width="1181" height="899" alt="image" src="https://github.com/user-attachments/assets/c3c6a6cc-a5f9-4663-a23d-63dc0a3672dc" />
