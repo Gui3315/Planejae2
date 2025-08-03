@@ -66,7 +66,12 @@ Este projeto está sob a licença MIT.
 Veja abaixo exemplos visuais do sistema:
 
 
-<img src="https://github.com/user-attachments/assets/a85a12f7-3e4f-48ff-a76a-ab726a456486" alt="Login Page" width="800" />
+<img 
+  src="https://github.com/user-attachments/assets/a85a12f7-3e4f-48ff-a76a-ab726a456486" 
+  alt="Tela de Login" 
+  width="800"
+  style="border-radius: 12px;"
+/>
 
 
 <img width="800" height="899" alt="image" src="https://github.com/user-attachments/assets/c3c6a6cc-a5f9-4663-a23d-63dc0a3672dc" />
