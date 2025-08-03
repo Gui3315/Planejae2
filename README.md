@@ -67,11 +67,17 @@ Veja abaixo exemplos visuais do sistema:
 
 > Adicione aqui suas imagens de tela. Exemplo:
 
-![Login Page]
+[Login Page]
 <img width="1913" height="898" alt="image" src="https://github.com/user-attachments/assets/a85a12f7-3e4f-48ff-a76a-ab726a456486" />
 
-![Cadastro de Despesa]
-![Relatório de Categorias]
+[Dashboard]
+<img width="1181" height="899" alt="image" src="https://github.com/user-attachments/assets/c3c6a6cc-a5f9-4663-a23d-63dc0a3672dc" />
+
+[Adição de despesa]
+<img width="520" height="901" alt="image" src="https://github.com/user-attachments/assets/fa51e645-eb6c-46fa-baa7-b84d9de10c73" />
+
+[Gerenciamento de cartões de crédito]
+<img width="1330" height="754" alt="image" src="https://github.com/user-attachments/assets/50ab17bd-1cfc-4d2c-ae85-a30833e166c2" />
 
 ---
 
