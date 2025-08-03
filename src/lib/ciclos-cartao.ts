@@ -107,15 +107,27 @@ export function calcularProximoVencimento(
   dataReferencia: Date = new Date()
 ): Date {
   const ciclo = calcularCicloAtual(melhorDiaCompra, dataReferencia);
-  
-  // O vencimento é sempre no mês seguinte ao fim do ciclo
-  let anoVenc = ciclo.fim.getFullYear();
-  let mesVenc = ciclo.fim.getMonth() + 1;
-  
-  if (mesVenc > 11) {
-    mesVenc = 0;
-    anoVenc += 1;
+
+  // Se a data atual ainda está dentro do ciclo, usa esse ciclo como base
+  const aindaNoCicloAtual = estaNoCiclo(dataReferencia, ciclo);
+
+  let anoVenc: number;
+  let mesVenc: number;
+
+  if (aindaNoCicloAtual) {
+    // vencimento deste ciclo
+    anoVenc = ciclo.fim.getFullYear();
+    mesVenc = ciclo.fim.getMonth();
+  } else {
+    // vencimento do próximo ciclo
+    anoVenc = ciclo.fim.getFullYear();
+    mesVenc = ciclo.fim.getMonth() + 1;
+
+    if (mesVenc > 11) {
+      mesVenc = 0;
+      anoVenc += 1;
+    }
   }
-  
+
   return new Date(anoVenc, mesVenc, diaVencimento);
-} 
+}

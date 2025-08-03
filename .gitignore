@@ -12,6 +12,13 @@ dist
 dist-ssr
 *.local
 
+# Environment variables
+.env.local
+.env
+
+# Database scripts
+limpar_banco.sql
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
