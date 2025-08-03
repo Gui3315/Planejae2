@@ -65,8 +65,6 @@ Este projeto está sob a licença MIT.
 
 Veja abaixo exemplos visuais do sistema:
 
-> Adicione aqui suas imagens de tela. Exemplo:
-
 <img width="1165" height="887" alt="image" src="https://github.com/user-attachments/assets/07593287-77cd-4802-a8d1-5e336d70b0f7" />)
 <img width="1197" height="672" alt="image" src="https://github.com/user-attachments/assets/60cd37d3-81a4-4872-b7b4-149f7185f994" />
 <img width="511" height="902" alt="image" src="https://github.com/user-attachments/assets/f32c6daa-c230-468f-8089-1fa5c1056669" />
