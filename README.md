@@ -61,6 +61,18 @@ Este projeto é um sistema completo para controle financeiro pessoal, desenvolvi
 
 Este projeto está sob a licença MIT.
 
+## Screenshots
+
+Veja abaixo exemplos visuais do sistema:
+
+> Adicione aqui suas imagens de tela. Exemplo:
+
+![Login Page]
+<img width="1913" height="898" alt="image" src="https://github.com/user-attachments/assets/a85a12f7-3e4f-48ff-a76a-ab726a456486" />
+
+![Cadastro de Despesa]
+![Relatório de Categorias]
+
 ---
 
 **Pocket Finances Hub** — Controle suas finanças de forma simples, visual e eficiente!
