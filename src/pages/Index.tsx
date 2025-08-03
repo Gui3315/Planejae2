@@ -561,7 +561,7 @@ const Index = () => {
         )}
 
         {/* Cards de Resumo */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mt-8 mb-8">
           {/* Renda Mensal */}
           <Card className="bg-white/5 border-white/10 backdrop-blur-sm hover:shadow-xl hover:scale-110 transition-all duration-300 transition-all duration-300">
             <CardContent className="p-6">
