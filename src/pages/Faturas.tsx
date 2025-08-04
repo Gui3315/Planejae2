@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { getStatusFatura } from "../lib/faturas"
 import { calcularVencimentoCompra, calcularCicloAtual, estaNoCiclo } from "../lib/ciclos-cartao"
 import {
@@ -25,6 +26,8 @@ import {
   Receipt,
   Banknote,
   X,
+  Edit2,
+  Trash2,
 } from "lucide-react"
 
 interface Cartao {
@@ -111,6 +114,7 @@ const Faturas = () => {
   const [contas, setContas] = useState<Conta[]>([])
   const [faturas, setFaturas] = useState<any[]>([])
   const [comprasRecorrentes, setComprasRecorrentes] = useState<CompraRecorrente[]>([])
+  const [categorias, setCategorias] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [modalPagamentoOpen, setModalPagamentoOpen] = useState(false)
   const [faturaSelecionada, setFaturaSelecionada] = useState<any | null>(null)
@@ -126,6 +130,13 @@ const Faturas = () => {
 
   const [lancamentos, setLancamentos] = useState<any[]>([])
   const [loadingLancamentos, setLoadingLancamentos] = useState(false)
+
+  // Estados para edição e remoção de lançamentos
+  const [modalEditarOpen, setModalEditarOpen] = useState(false)
+  const [modalRemoverOpen, setModalRemoverOpen] = useState(false)
+  const [lancamentoSelecionado, setLancamentoSelecionado] = useState<any>(null)
+  const [novoNome, setNovoNome] = useState("")
+  const [novaCategoria, setNovaCategoria] = useState("")
 
   const mostrarToast = (type: "success" | "error", text: string) => {
     setToast({ type, text })
@@ -196,6 +207,19 @@ const Faturas = () => {
       }
       if (cartoesData) {
         setCartoes(cartoesData)
+      }
+
+      // Carregar categorias
+      const { data: categoriasData, error: categoriasError } = await supabase
+        .from("categorias")
+        .select("*")
+        .eq("user_id", userId)
+        .order("nome", { ascending: true })
+
+      if (categoriasError) {
+        console.error("Erro ao carregar categorias:", categoriasError)
+      } else if (categoriasData) {
+        setCategorias(categoriasData)
       }
 
       const { data: contasData, error: contasError } = await supabase
@@ -540,6 +564,307 @@ const Faturas = () => {
     setModalDetalhesOpen(true)
   }
 
+  const abrirModalEditar = (lancamento: any) => {
+    console.log("Abrindo modal editar com lançamento:", lancamento)
+    setLancamentoSelecionado(lancamento)
+    setNovoNome(lancamento.titulo || lancamento.descricao || "")
+    setNovaCategoria(lancamento.categoria_id || "")
+    setModalEditarOpen(true)
+  }
+
+  const abrirModalRemover = (lancamento: any) => {
+    setLancamentoSelecionado(lancamento)
+    setModalRemoverOpen(true)
+  }
+
+  // ✅ Função para buscar dados frescos do banco após operações
+  const getLancamentosDaFaturaFresh = async (cartaoId: string, ano: number, mes: number) => {
+    if (!user) return []
+
+    // Buscar dados frescos do banco
+    const { data: contasFrescas, error: contasError } = await supabase
+      .from("contas")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("tipo_conta", "parcelada")
+      .eq("cartao_id", cartaoId)
+
+    if (contasError) {
+      console.error("Erro ao buscar contas frescas:", contasError)
+      return []
+    }
+
+    const { data: parcelasFrescas, error: parcelasError } = await (supabase as any)
+      .from("parcelas")
+      .select("*")
+      .eq("user_id", user.id)
+      .in("conta_id", contasFrescas?.map((c) => c.id) || [])
+
+    if (parcelasError) {
+      console.error("Erro ao buscar parcelas frescas:", parcelasError)
+      return []
+    }
+
+    const { data: comprasRecorrentesFrescas, error: comprasError } = await (supabase as any)
+      .from("compras_recorrentes_cartao")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("cartao_id", cartaoId)
+      .eq("ativa", true)
+
+    if (comprasError) {
+      console.error("Erro ao buscar compras recorrentes frescas:", comprasError)
+      return []
+    }
+
+    // Processar lançamentos com dados frescos
+    const lancamentos: any[] = []
+
+    // Processar contas parceladas
+    const parcelasDoMes = parcelasFrescas?.filter((parcela) => {
+      const dataVencimento = new Date(parcela.data_vencimento)
+      const mesVencimento = dataVencimento.getMonth() + 1
+      const anoVencimento = dataVencimento.getFullYear()
+      return mesVencimento === mes && anoVencimento === ano
+    }) || []
+
+    contasFrescas?.forEach((conta) => {
+      const parcelasConta = parcelasDoMes.filter((p) => p.conta_id === conta.id)
+      if (parcelasConta.length === 0) return
+
+      const valorParcela = parcelasConta[0]?.valor_parcela || 0
+      const numeroParcela = parcelasConta[0]?.numero_parcela || 1
+
+      lancamentos.push({
+        tipo: "compra",
+        tipoCompra: "parcelada",
+        descricao: `${conta.titulo} - Parcela ${numeroParcela} de ${conta.total_parcelas}`,
+        titulo: conta.titulo,
+        valor: parcelasConta.reduce((total, p) => total + p.valor_parcela, 0),
+        data: conta.created_at || new Date().toISOString(),
+        categoria_id: conta.categoria_id || null,
+        conta_id: conta.id,
+        parcela_id: parcelasConta[0]?.id,
+        compra_recorrente_id: null,
+      })
+    })
+
+    // Processar compras recorrentes
+    comprasRecorrentesFrescas?.forEach((compra) => {
+      const dataInicio = new Date(compra.data_inicio)
+      const mesInicio = dataInicio.getMonth() + 1
+      const anoInicio = dataInicio.getFullYear()
+      
+      const dataFim = compra.data_fim ? new Date(compra.data_fim) : null
+      const mesFim = dataFim ? dataFim.getMonth() + 1 : null
+      const anoFim = dataFim ? dataFim.getFullYear() : null
+      
+      const isDepoisInicio = (ano > anoInicio) || (ano === anoInicio && mes >= mesInicio)
+      const isAntesFim = !dataFim || (ano < anoFim!) || (ano === anoFim! && mes <= mesFim!)
+      
+      if (isDepoisInicio && isAntesFim) {
+        lancamentos.push({
+          tipo: "compra",
+          tipoCompra: "recorrente",
+          descricao: `${compra.titulo} - Compra Recorrente`,
+          titulo: compra.titulo,
+          valor: compra.valor,
+          data: compra.created_at || new Date().toISOString(),
+          categoria_id: compra.categoria_id || null,
+          conta_id: null,
+          parcela_id: null,
+          compra_recorrente_id: compra.id,
+        })
+      }
+    })
+
+    // Buscar pagamentos da fatura se existir
+    const { data: faturasData, error: faturaError } = await (supabase as any)
+      .from("faturas_cartao")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("cartao_id", cartaoId)
+
+    if (!faturaError && faturasData) {
+      const faturaDoPeriodo = faturasData.find((fatura: any) => {
+        const dataVencimento = new Date(fatura.data_vencimento)
+        const mesVencimento = dataVencimento.getMonth() + 1
+        const anoVencimento = dataVencimento.getFullYear()
+        return mesVencimento === mes && anoVencimento === ano
+      })
+
+      if (faturaDoPeriodo) {
+        const { data: pagamentos, error } = await (supabase as any)
+          .from("pagamentos_fatura")
+          .select("*")
+          .eq("fatura_id", faturaDoPeriodo.id)
+          .order("data_pagamento", { ascending: true })
+
+        if (!error && pagamentos) {
+          pagamentos.forEach((pagamento: any) => {
+            lancamentos.push({
+              tipo: "pagamento",
+              descricao: `Pagamento ${pagamento.tipo_pagamento}`,
+              valor: -pagamento.valor_pago,
+              data: pagamento.data_pagamento,
+            })
+          })
+        }
+      }
+    }
+
+    return lancamentos.sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime())
+  }
+
+  const processarEdicao = async () => {
+    if (!lancamentoSelecionado || !novoNome.trim()) {
+      mostrarToast("error", "Nome é obrigatório")
+      return
+    }
+
+    try {
+      if (lancamentoSelecionado.tipoCompra === "parcelada" && lancamentoSelecionado.conta_id) {
+        // Editar conta parcelada
+        const { error } = await supabase
+          .from("contas")
+          .update({
+            titulo: novoNome.trim(),
+            categoria_id: novaCategoria || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", lancamentoSelecionado.conta_id)
+          .eq("user_id", user!.id)
+
+        if (error) {
+          console.error("Erro ao editar conta:", error)
+          mostrarToast("error", "Erro ao editar conta parcelada")
+          return
+        }
+      } else if (lancamentoSelecionado.tipoCompra === "recorrente" && lancamentoSelecionado.compra_recorrente_id) {
+        // Editar compra recorrente
+        const { error } = await (supabase as any)
+          .from("compras_recorrentes_cartao")
+          .update({
+            titulo: novoNome.trim(),
+            categoria_id: novaCategoria || null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", lancamentoSelecionado.compra_recorrente_id)
+          .eq("user_id", user!.id)
+
+        if (error) {
+          console.error("Erro ao editar compra recorrente:", error)
+          mostrarToast("error", "Erro ao editar compra recorrente")
+          return
+        }
+      }
+
+      // Recarregar dados
+      await carregarDados(user!.id)
+      
+      // ✅ NOVO: Recarregar lançamentos do modal de detalhes se estiver aberto
+      if (modalDetalhesOpen && faturaDetalhes) {
+        // Aguardar um pequeno delay para garantir que os dados foram atualizados
+        await new Promise(resolve => setTimeout(resolve, 100))
+        const dadosAtualizados = await getLancamentosDaFaturaFresh(faturaDetalhes.cartao_id, anoSelecionado, mesSelecionadoDetalhes)
+        setLancamentos(dadosAtualizados)
+      }
+      
+      mostrarToast("success", "Lançamento editado com sucesso!")
+      setModalEditarOpen(false)
+      setLancamentoSelecionado(null)
+      setNovoNome("")
+      setNovaCategoria("")
+    } catch (error) {
+      console.error("Erro ao processar edição:", error)
+      mostrarToast("error", "Erro inesperado ao editar lançamento")
+    }
+  }
+
+  const processarRemocao = async () => {
+    if (!lancamentoSelecionado) return
+
+    try {
+      if (lancamentoSelecionado.tipoCompra === "parcelada" && lancamentoSelecionado.conta_id) {
+        // Buscar parcelas futuras e atual da conta
+        const hoje = new Date()
+        const { data: parcelasFuturas, error: errorParcelas } = await (supabase as any)
+          .from("parcelas")
+          .select("*")
+          .eq("conta_id", lancamentoSelecionado.conta_id)
+          .gte("data_vencimento", hoje.toISOString().split('T')[0])
+          .eq("user_id", user!.id)
+
+        if (errorParcelas) {
+          console.error("Erro ao buscar parcelas:", errorParcelas)
+          mostrarToast("error", "Erro ao buscar parcelas da conta")
+          return
+        }
+
+        // Remover parcelas futuras
+        if (parcelasFuturas && parcelasFuturas.length > 0) {
+          const { error: errorRemoverParcelas } = await supabase
+            .from("parcelas")
+            .delete()
+            .in("id", parcelasFuturas.map(p => p.id))
+
+          if (errorRemoverParcelas) {
+            console.error("Erro ao remover parcelas:", errorRemoverParcelas)
+            mostrarToast("error", "Erro ao remover parcelas futuras")
+            return
+          }
+        }
+
+        // Remover a conta
+        const { error: errorConta } = await supabase
+          .from("contas")
+          .delete()
+          .eq("id", lancamentoSelecionado.conta_id)
+          .eq("user_id", user!.id)
+
+        if (errorConta) {
+          console.error("Erro ao remover conta:", errorConta)
+          mostrarToast("error", "Erro ao remover conta parcelada")
+          return
+        }
+
+        mostrarToast("success", "Conta parcelada e parcelas futuras removidas com sucesso!")
+      } else if (lancamentoSelecionado.tipoCompra === "recorrente" && lancamentoSelecionado.compra_recorrente_id) {
+        // Remover compra recorrente
+        const { error } = await (supabase as any)
+          .from("compras_recorrentes_cartao")
+          .delete()
+          .eq("id", lancamentoSelecionado.compra_recorrente_id)
+          .eq("user_id", user!.id)
+
+        if (error) {
+          console.error("Erro ao remover compra recorrente:", error)
+          mostrarToast("error", "Erro ao remover compra recorrente")
+          return
+        }
+
+        mostrarToast("success", "Compra recorrente removida com sucesso!")
+      }
+
+      // Recarregar dados
+      await carregarDados(user!.id)
+      
+      // ✅ NOVO: Recarregar lançamentos do modal de detalhes se estiver aberto
+      if (modalDetalhesOpen && faturaDetalhes) {
+        // Aguardar um pequeno delay para garantir que os dados foram atualizados
+        await new Promise(resolve => setTimeout(resolve, 100))
+        const dadosAtualizados = await getLancamentosDaFaturaFresh(faturaDetalhes.cartao_id, anoSelecionado, mesSelecionadoDetalhes)
+        setLancamentos(dadosAtualizados)
+      }
+      
+      setModalRemoverOpen(false)
+      setLancamentoSelecionado(null)
+    } catch (error) {
+      console.error("Erro ao processar remoção:", error)
+      mostrarToast("error", "Erro inesperado ao remover lançamento")
+    }
+  }
+
   const getFaturasPorCartao = (cartaoId: string, ano: number, mes: number) => {
     return faturas.filter((fatura) => {
       if (fatura.cartao_id !== cartaoId) return false
@@ -611,6 +936,7 @@ const Faturas = () => {
 
     const comprasRecorrentesFormatadas = comprasRecorrentesDoCartao.map((compra) => ({
       tipo: "recorrente",
+      id: compra.id, // Adicionar ID aqui
       titulo: compra.titulo,
       valor_total: compra.valor,
       parcelas: [],
@@ -643,10 +969,15 @@ const Faturas = () => {
 
       lancamentos.push({
         tipo: "compra",
+        tipoCompra: compra.tipo, // Adicionar tipo específico da compra
         descricao: descricao,
+        titulo: compra.titulo, // Adicionar título original
         valor: compra.valor_parcelas,
         data: compra.data_criacao || new Date().toISOString(),
         categoria_id: compra.categoria_id || null,
+        conta_id: compra.tipo === "parcelada" ? compra.parcelas[0]?.conta_id : null, // Para contas parceladas
+        parcela_id: compra.tipo === "parcelada" ? compra.parcelas[0]?.id : null, // Para parcelas específicas
+        compra_recorrente_id: compra.tipo === "recorrente" && 'id' in compra ? compra.id : null, // Para compras recorrentes
       })
     })
 
@@ -1205,6 +1536,9 @@ const Faturas = () => {
               <Banknote className="w-5 h-5 mr-2 text-green-400" />
               Pagar Fatura
             </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Registre o pagamento total ou parcial da fatura selecionada
+            </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 py-4">
@@ -1338,7 +1672,7 @@ const Faturas = () => {
                         variant={anoSelecionado === ano ? "default" : "outline"}
                         size="sm"
                         onClick={() => setAnoSelecionado(ano)}
-                        className={`${
+                        className={`h-6 px-2 text-[13px] font-semibold rounded w-auto min-w-0 leading-tight ${
                           anoSelecionado === ano
                             ? "bg-blue-600 text-white hover:bg-blue-700"
                             : "border-white/20 text-white hover:bg-white/10 bg-transparent"
@@ -1353,7 +1687,7 @@ const Faturas = () => {
                 {/* Seletor de Mês */}
                 <div>
                   <h3 className="text-lg font-semibold text-white mb-3">Selecionar Mês</h3>
-                  <div className="grid grid-cols-4 gap-2">
+                        <div className="grid grid-cols-12 gap-1">
                     {Array.from({ length: 12 }, (_, i) => {
                       const mes = i + 1
                       const nomesMeses = [
@@ -1376,7 +1710,7 @@ const Faturas = () => {
                           variant={mesSelecionadoDetalhes === mes ? "default" : "outline"}
                           size="sm"
                           onClick={() => setMesSelecionadoDetalhes(mes)}
-                          className={`${
+                          className={`h-6 px-0 text-[13px] font-semibold rounded w-auto min-w-0 leading-tight ${
                             mesSelecionadoDetalhes === mes
                               ? "bg-blue-600 text-white hover:bg-blue-700"
                               : "border-white/20 text-white hover:bg-white/10 bg-transparent"
@@ -1499,7 +1833,10 @@ const Faturas = () => {
                       <p className="text-sm text-gray-400">Nenhum lançamento encontrado para este mês.</p>
                     </div>
                   ) : (
-                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                    <div className="space-y-3 max-h-60 overflow-y-auto" style={{
+                      scrollbarWidth: 'thin',
+                      scrollbarColor: '#1e293b #0f172a'
+                    }}>
                       {lancamentos.map((lancamento, index) => (
                         <div key={index} className="bg-white/5 border border-white/10 rounded-lg p-3">
                           <div className="flex justify-between items-center">
@@ -1519,20 +1856,51 @@ const Faturas = () => {
                                 <p className="font-medium text-white">{lancamento.descricao}</p>
                                 <p className="text-sm text-gray-400">
                                   {new Date(lancamento.data).toLocaleDateString("pt-BR")}
+                                  {lancamento.categoria_id && (
+                                    <>
+                                      {" • "}
+                                      <span className="text-blue-300">
+                                        Categoria: {categorias.find(cat => cat.id === lancamento.categoria_id)?.nome || "N/A"}
+                                      </span>
+                                    </>
+                                  )}
                                 </p>
                               </div>
                             </div>
-                            <p
-                              className={`font-semibold ${
-                                lancamento.tipo === "compra" ? "text-white" : "text-emerald-400"
-                              }`}
-                            >
-                              {lancamento.tipo === "compra" ? "+" : ""}
-                              {Math.abs(lancamento.valor).toLocaleString("pt-BR", {
-                                style: "currency",
-                                currency: "BRL",
-                              })}
-                            </p>
+                            <div className="flex items-center space-x-3">
+                              <p
+                                className={`font-semibold ${
+                                  lancamento.tipo === "compra" ? "text-white" : "text-emerald-400"
+                                }`}
+                              >
+                                {lancamento.tipo === "compra" ? "+" : ""}
+                                {Math.abs(lancamento.valor).toLocaleString("pt-BR", {
+                                  style: "currency",
+                                  currency: "BRL",
+                                })}
+                              </p>
+                              {/* Botões de ação apenas para compras */}
+                              {lancamento.tipo === "compra" && (
+                                <div className="flex items-center space-x-1">
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => abrirModalEditar(lancamento)}
+                                    className="h-6 w-6 p-0 border-blue-500/30 text-blue-400 hover:bg-blue-500/10 bg-transparent"
+                                  >
+                                    <Edit2 className="w-3 h-3" />
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => abrirModalRemover(lancamento)}
+                                    className="h-6 w-6 p-0 border-red-500/30 text-red-400 hover:bg-red-500/10 bg-transparent"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ))}
@@ -1542,6 +1910,164 @@ const Faturas = () => {
               </div>
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Edição de Lançamento */}
+      <Dialog open={modalEditarOpen} onOpenChange={setModalEditarOpen}>
+        <DialogContent className="bg-slate-900/95 border-slate-700 backdrop-blur-sm">
+          <DialogHeader>
+            <DialogTitle className="text-white text-xl flex items-center">
+              <Edit2 className="w-5 h-5 mr-2 text-blue-400" />
+              Editar Lançamento
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Altere o nome e categoria do lançamento selecionado
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {lancamentoSelecionado && (
+              <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+                <p className="text-sm text-gray-400 mb-2">Editando:</p>
+                <p className="text-white font-medium">{lancamentoSelecionado.descricao}</p>
+                <p className="text-xs text-gray-500 mt-1">Tipo: {lancamentoSelecionado.tipoCompra}</p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="novoNome" className="text-white font-medium">
+                Nome/Título
+              </Label>
+              <Input
+                id="novoNome"
+                value={novoNome}
+                onChange={(e) => setNovoNome(e.target.value)}
+                placeholder="Digite o novo nome"
+                className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="novaCategoria" className="text-white font-medium">
+                Categoria (Opcional)
+              </Label>
+              <Select 
+                value={novaCategoria || "sem-categoria"} 
+                onValueChange={(value) => setNovaCategoria(value === "sem-categoria" ? "" : value)}
+              >
+                <SelectTrigger className="bg-white/10 border-white/20 text-white">
+                  <SelectValue placeholder="Selecione uma categoria" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectItem value="sem-categoria" className="text-gray-300 hover:bg-slate-700 focus:bg-slate-700">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-3 h-3 rounded-full bg-gray-500" />
+                      <span>Sem categoria</span>
+                    </div>
+                  </SelectItem>
+                  {categorias.map((categoria) => (
+                    <SelectItem 
+                      key={categoria.id} 
+                      value={categoria.id}
+                      className="text-white hover:bg-slate-700 focus:bg-slate-700"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <div 
+                          className="w-3 h-3 rounded-full" 
+                          style={{ backgroundColor: categoria.cor || "#6b7280" }}
+                        />
+                        <span>{categoria.nome}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                onClick={processarEdicao}
+                className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-200"
+              >
+                <Edit2 className="w-4 h-4 mr-2" />
+                Salvar Alterações
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setModalEditarOpen(false)
+                  setLancamentoSelecionado(null)
+                  setNovoNome("")
+                  setNovaCategoria("")
+                }}
+                className="flex-1 border-white/20 text-white hover:bg-white/10 bg-transparent"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Confirmação de Remoção */}
+      <Dialog open={modalRemoverOpen} onOpenChange={setModalRemoverOpen}>
+        <DialogContent className="bg-slate-900/95 border-slate-700 backdrop-blur-sm">
+          <DialogHeader>
+            <DialogTitle className="text-white text-xl flex items-center">
+              <Trash2 className="w-5 h-5 mr-2 text-red-400" />
+              Confirmar Remoção
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              Esta ação não pode ser desfeita. Confirme se deseja remover o lançamento.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            {lancamentoSelecionado && (
+              <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+                <p className="text-red-300 font-medium mb-2">⚠️ Atenção!</p>
+                <p className="text-white text-sm mb-2">
+                  Você está prestes a remover: <strong>{lancamentoSelecionado.descricao}</strong>
+                </p>
+                {lancamentoSelecionado.tipoCompra === "parcelada" && (
+                  <p className="text-red-300 text-sm">
+                    <strong>Esta ação irá remover:</strong><br />
+                    • A conta parcelada<br />
+                    • Todas as parcelas futuras e atual<br />
+                    • As parcelas passadas ficarão no histórico
+                  </p>
+                )}
+                {lancamentoSelecionado.tipoCompra === "recorrente" && (
+                  <p className="text-red-300 text-sm">
+                    <strong>Esta ação irá remover permanentemente a compra recorrente.</strong>
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                onClick={processarRemocao}
+                className="flex-1 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white shadow-lg hover:shadow-xl transition-all duration-200"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Confirmar Remoção
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setModalRemoverOpen(false)
+                  setLancamentoSelecionado(null)
+                }}
+                className="flex-1 border-white/20 text-white hover:bg-white/10 bg-transparent"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancelar
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

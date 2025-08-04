@@ -1,3 +1,20 @@
+/* Scrollbar customizado para tema escuro */
+::-webkit-scrollbar {
+  width: 6px;
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #181e29;
+  border-radius: 10px;
+  border: 1px solid #232a36;
+  transition: background 0.2s;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
 @import 'tailwindcss';
 @import 'tw-animate-css';
 

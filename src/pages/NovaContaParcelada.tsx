@@ -47,7 +47,7 @@ interface Cartao {
 const NovaContaParcelada: React.FC = () => {
   const [tipoParcelamento, setTipoParcelamento] = useState<"cartao" | "carne">("cartao")
   const [titulo, setTitulo] = useState("")
-  const [valorTotal, setValorTotal] = useState("")
+  const [valorParcela, setValorParcela] = useState("")
   const [numParcelas, setNumParcelas] = useState(1)
   const [parcelaInicial, setParcelaInicial] = useState(1)
   const [dataPrimeiraParcela, setDataPrimeiraParcela] = useState("")
@@ -333,9 +333,12 @@ const NovaContaParcelada: React.FC = () => {
     return () => subscription.unsubscribe()
   }, [navigate])
 
+  // Calcular valor total automaticamente
+  const valorTotal = valorParcela && numParcelas > 0 ? (Number.parseFloat(valorParcela) * numParcelas).toFixed(2) : "0.00"
+
   function limparFormulario() {
     setTitulo("")
-    setValorTotal("")
+    setValorParcela("")
     setNumParcelas(1)
     setParcelaInicial(1)
     setDataPrimeiraParcela("")
@@ -358,7 +361,7 @@ const NovaContaParcelada: React.FC = () => {
         user_id: user.id,
         cartao_id: cartaoId,
         titulo: titulo,
-        valor: Number.parseFloat(valorTotal),
+        valor: Number.parseFloat(valorParcela),
         dia_cobranca: diaCobranca,
         categoria_id: categoriaId,
         descricao: descricao,
@@ -397,7 +400,10 @@ const NovaContaParcelada: React.FC = () => {
     setLoading(true)
 
     try {
-      if (!titulo || !valorTotal) {
+      // Calcular valor total baseado na parcela
+      const valorTotalCalculado = valorParcela && numParcelas > 0 ? Number.parseFloat(valorParcela) * numParcelas : 0
+
+      if (!titulo || !valorParcela) {
         setErro("Preencha todos os campos obrigatórios.")
         setLoading(false)
         return
@@ -456,7 +462,7 @@ const NovaContaParcelada: React.FC = () => {
 
       const contaPayload = {
         titulo,
-        valor_total: Number.parseFloat(valorTotal),
+        valor_total: valorTotalCalculado,
         categoria_id: categoriaId,
         cartao_id: tipoParcelamento === "cartao" ? cartaoId : null,
         tipo_conta: "parcelada",
@@ -481,7 +487,7 @@ const NovaContaParcelada: React.FC = () => {
       const dataReferencia = new Date(dataPrimeiraParcela)
 
       const parcelas = []
-      const valorParcela = Math.round((Number.parseFloat(valorTotal) / numParcelas) * 100) / 100
+      const valorParcelaCalculado = Number.parseFloat(valorParcela)
 
       for (let i = 0; i < numParcelas; i++) {
         const numeroParcela = i + 1
@@ -494,7 +500,7 @@ const NovaContaParcelada: React.FC = () => {
           conta_id: contaData.id,
           categoria_id: categoriaId,
           numero_parcela: numeroParcela,
-          valor_parcela: valorParcela,
+          valor_parcela: valorParcelaCalculado,
           data_vencimento: dataParcela.toISOString().slice(0, 10),
           status: "pendente",
           user_id: user.id, // ✅ Adicionar user_id para segurança
@@ -529,8 +535,6 @@ const NovaContaParcelada: React.FC = () => {
       setLoading(false)
     }
   }
-
-  const valorParcela = valorTotal && numParcelas > 0 ? (Number.parseFloat(valorTotal) / numParcelas).toFixed(2) : "0.00"
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
@@ -641,20 +645,20 @@ const NovaContaParcelada: React.FC = () => {
                     />
                   </div>
 
-                  {/* Campo Valor Total */}
+                  {/* Campo Valor da Parcela */}
                   <div className="space-y-2">
-                    <Label htmlFor="valorTotal" className="text-white font-medium">
-                      Valor Total *
+                    <Label htmlFor="valorParcela" className="text-white font-medium">
+                      Valor da Parcela *
                     </Label>
                     <div className="relative">
                       <DollarSign className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <Input
-                        id="valorTotal"
+                        id="valorParcela"
                         type="number"
                         step="0.01"
                         min="0"
-                        value={valorTotal}
-                        onChange={(e) => setValorTotal(e.target.value)}
+                        value={valorParcela}
+                        onChange={(e) => setValorParcela(e.target.value)}
                         placeholder="0,00"
                         className="bg-white/10 border-white/20 text-white placeholder:text-gray-400 pl-10"
                         required
@@ -754,12 +758,12 @@ const NovaContaParcelada: React.FC = () => {
                     </div>
                   )}
 
-                  {/* Valor da Parcela (calculado) */}
+                  {/* Valor Total (calculado) */}
                   {!isRecorrente && (
                     <div className="space-y-2">
-                      <Label className="text-white font-medium">Valor da Parcela</Label>
+                      <Label className="text-white font-medium">Valor Total</Label>
                       <div className="bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white font-semibold">
-                        R$ {valorParcela.replace(".", ",")}
+                        R$ {valorTotal.replace(".", ",")}
                       </div>
                     </div>
                   )}

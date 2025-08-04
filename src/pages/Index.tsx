@@ -351,12 +351,42 @@ const Index = () => {
     return categoria?.ignorarsaldo === true;
   };
 
-  // 🔖 SIMPLIFICADA: Calcular faturas usando diretamente o valor restante das faturas
+  // 🔖 CORRIGIDO: Calcular faturas ignorando categorias com ignorarsaldo = true
   const totalFaturasRestantes = faturasEmAberto.reduce((total, fatura) => {
-    // Para faturas, usar diretamente o valor restante (valor_total - valor_pago)
-    // A filtragem por categoria já foi feita na geração das faturas
-    const valorRestante = fatura.valor_total - fatura.valor_pago;
-    return total + valorRestante;
+    // Para cada fatura, vamos calcular apenas o valor das compras que não devem ser ignoradas
+    let valorFaturaValido = 0;
+    
+    // 1. Verificar compras parceladas deste cartão
+    const contasParceladasDoCartao = contasParceladas.filter(conta => conta.cartao_id === fatura.cartao_id);
+    contasParceladasDoCartao.forEach(conta => {
+      const ignorada = isIgnoradaNoSaldo(conta.categoria_id);
+      if (!ignorada) {
+        // Somar o valor proporcional desta conta na fatura
+        const parcelasDaConta = parcelas.filter(p => p.conta_id === conta.id);
+        const valorTotalParcelas = parcelasDaConta.reduce((sum, p) => sum + p.valor_parcela, 0);
+        valorFaturaValido += valorTotalParcelas;
+      }
+    });
+    
+    // 2. Verificar compras recorrentes deste cartão
+    const comprasRecorrentesDoCartao = comprasRecorrentes.filter(compra => compra.cartao_id === fatura.cartao_id);
+    comprasRecorrentesDoCartao.forEach(compra => {
+      const ignorada = isIgnoradaNoSaldo(compra.categoria_id);
+      if (!ignorada) {
+        valorFaturaValido += compra.valor;
+      }
+    });
+    
+    // Se não há valor válido nesta fatura, pular
+    if (valorFaturaValido === 0) {
+      return total;
+    }
+    
+    // Calcular a proporção que foi paga e aplicar ao valor válido
+    const proporcaoPaga = fatura.valor_total > 0 ? fatura.valor_pago / fatura.valor_total : 0;
+    const valorRestanteValido = valorFaturaValido * (1 - proporcaoPaga);
+    
+    return total + valorRestanteValido;
   }, 0);
   
   // 2. Contas fixas (ignorar categorias marcadas)
