@@ -282,7 +282,7 @@ const Faturas = () => {
         try {
           await gerarFaturasAutomaticas(cartoesData, contasData, parcelasData, comprasRecorrentesData || [])
         } catch (error) {
-          console.error("🔖 Erro ao gerar faturas:", error)
+          console.error(" Erro ao gerar faturas:", error)
         }
       }
 
@@ -328,7 +328,7 @@ const Faturas = () => {
             .eq("id", fatura.id)
             .eq("user_id", user.id)
           if (error) {
-            console.error("🔖 Erro ao atualizar status da fatura:", error)
+            console.error(" Erro ao atualizar status da fatura:", error)
           } else {
           }
         }
@@ -342,7 +342,7 @@ const Faturas = () => {
       .order("data_vencimento", { ascending: false })
 
     if (faturasError) {
-      console.error("🔖 Erro ao recarregar faturas:", faturasError)
+      console.error(" Erro ao recarregar faturas:", faturasError)
     } else if (faturasAtualizadas) {
       setFaturas(faturasAtualizadas as any)
     }
@@ -442,7 +442,7 @@ const Faturas = () => {
             .maybeSingle()
 
           if (errorVerificacao) {
-            console.error("🔖 Erro ao verificar fatura existente:", errorVerificacao)
+            console.error(" Erro ao verificar fatura existente:", errorVerificacao)
             continue
           }
 
@@ -523,7 +523,7 @@ const Faturas = () => {
             if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict')) {
               // Fatura já existe, ignorando conflito 409
             } else {
-              console.error("🔖 Erro ao criar fatura:", error)
+              console.error(" Erro ao criar fatura:", error)
             }
           } else if (novaFatura) {
             setFaturas((prev) => [...prev, novaFatura])
@@ -1130,7 +1130,7 @@ const Faturas = () => {
             .eq("id", parcela.id)
 
           if (errorParcela) {
-            console.error("🔖 Erro ao atualizar parcela:", errorParcela)
+            console.error(" Erro ao atualizar parcela:", errorParcela)
           }
         }
 
@@ -1233,9 +1233,6 @@ const Faturas = () => {
       return "aberta"
     }
 
-    // 🔖 NOVA LÓGICA CORRETA usando ciclos-cartao.ts
-    // A fatura tem uma data de vencimento, então primeiro precisamos descobrir 
-    // qual é o mês de referência das compras que essa fatura representa
     
     // Uma fatura que vence em setembro representa compras feitas em um período anterior
     // Vamos calcular qual ciclo atual baseado no melhor dia de compra

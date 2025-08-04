@@ -137,7 +137,7 @@ const Index = () => {
     }
   }, [user]);
 
-  // 🔖 NOVO: Recarregar dados automaticamente a cada 30 segundos
+  //  NOVO: Recarregar dados automaticamente a cada 30 segundos
   useEffect(() => {
     if (!user) return;
 
@@ -148,7 +148,7 @@ const Index = () => {
     return () => clearInterval(interval);
   }, [user]);
 
-  // 🔖 NOVO: Recarregar dados quando a aba voltar a ficar ativa
+  //  NOVO: Recarregar dados quando a aba voltar a ficar ativa
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && user) {
@@ -167,13 +167,13 @@ const Index = () => {
   const calcularLimiteDisponivel = (cartao: Cartao) => {
     const limiteCartao = cartao.limite_credito || 0;
     
-    // 🔖 CORREÇÃO: Buscar contas parceladas deste cartão
+    //  CORREÇÃO: Buscar contas parceladas deste cartão
     const contasDoCartao = contasParceladas.filter(conta => conta.cartao_id === cartao.id);
     
     let limiteUsado = 0;
     
     contasDoCartao.forEach(conta => {
-      // 🔖 CORREÇÃO: Usar todas as parcelas para cálculo de limite
+      //  CORREÇÃO: Usar todas as parcelas para cálculo de limite
       const parcelasDaConta = todasParcelas.filter(parcela => parcela.conta_id === conta.id);
       
       // Calcular valor total das parcelas pendentes
@@ -247,7 +247,7 @@ const Index = () => {
         setContasParceladas(parceladas);
       }
 
-      // 🔖 CORREÇÃO: Carregar apenas parcelas do mês atual para gastos
+      //  CORREÇÃO: Carregar apenas parcelas do mês atual para gastos
       const inicioMes = new Date(anoAtual, mesAtual, 1);
       const fimMes = new Date(anoAtual, mesAtual + 1, 0);
       
@@ -259,7 +259,7 @@ const Index = () => {
       
       if (parcelasData) setParcelas(parcelasData);
 
-      // 🔖 CORREÇÃO: Carregar TODAS as parcelas separadamente para cálculo de limite
+      //  CORREÇÃO: Carregar TODAS as parcelas separadamente para cálculo de limite
       const { data: todasParcelasData } = await supabase
         .from('parcelas')
         .select('*');
@@ -268,7 +268,7 @@ const Index = () => {
         setTodasParcelas(todasParcelasData);
       }
 
-      // 🔖 NOVO: Carregar faturas em aberto E fechadas para cálculo de gastos
+      //  NOVO: Carregar faturas em aberto E fechadas para cálculo de gastos
       const { data: faturasData } = await supabase
         .from('faturas_cartao' as any)
         .select('*')
@@ -279,7 +279,7 @@ const Index = () => {
         setFaturasEmAberto(faturasData as unknown as FaturaCartao[]);
       }
 
-      // 🔖 NOVO: Carregar contas fixas para gastos
+      //  NOVO: Carregar contas fixas para gastos
       const { data: contasFixasData } = await supabase
         .from('contas')
         .select('*')
@@ -290,7 +290,7 @@ const Index = () => {
         setContasFixas(contasFixasData);
       }
 
-      // 🔖 NOVO: Carregar compras recorrentes para gastos
+      //  NOVO: Carregar compras recorrentes para gastos
       const { data: comprasRecorrentesData } = await (supabase as any)
         .from('compras_recorrentes_cartao')
         .select('*')
@@ -301,7 +301,7 @@ const Index = () => {
         setComprasRecorrentes(comprasRecorrentesData as unknown as CompraRecorrente[]);
       }
 
-      // 🔖 NOVO: Carregar parcelas de carnê (parcelas que não são de cartão)
+      //  NOVO: Carregar parcelas de carnê (parcelas que não são de cartão)
       // Primeiro buscar contas parceladas sem cartão
       const { data: contasCarneData } = await supabase
         .from('contas')
@@ -313,7 +313,7 @@ const Index = () => {
       if (contasCarneData && contasCarneData.length > 0) {
         const contaIds = contasCarneData.map(c => c.id);
         
-        // 🔖 CORREÇÃO: Buscar parcelas do mês atual apenas
+        //  CORREÇÃO: Buscar parcelas do mês atual apenas
         const inicioMes = new Date(anoAtual, mesAtual, 1);
         const fimMes = new Date(anoAtual, mesAtual + 1, 0);
         
@@ -351,7 +351,7 @@ const Index = () => {
     return categoria?.ignorarsaldo === true;
   };
 
-  // 🔖 CORRIGIDO: Calcular faturas ignorando categorias com ignorarsaldo = true
+  //  CORRIGIDO: Calcular faturas ignorando categorias com ignorarsaldo = true
   const totalFaturasRestantes = faturasEmAberto.reduce((total, fatura) => {
     // Para cada fatura, vamos calcular apenas o valor das compras que não devem ser ignoradas
     let valorFaturaValido = 0;
@@ -412,8 +412,8 @@ const Index = () => {
   const saldoDisponivel = salarioMensal - totalGastosMes;
   const percentualGasto = salarioMensal > 0 ? (totalGastosMes / salarioMensal) * 100 : 0;
 
-  // 🔖 NOVO: Contas vencendo em breve (próximos 7 dias)
-  // 🔖 CORREÇÃO: Usar data local do Brasil (UTC-3)
+  //  NOVO: Contas vencendo em breve (próximos 7 dias)
+  //  CORREÇÃO: Usar data local do Brasil (UTC-3)
   const hoje = new Date();
   const hojeBrasil = new Date(hoje.getTime() - (3 * 60 * 60 * 1000)); // Ajustar para UTC-3
   hojeBrasil.setHours(0, 0, 0, 0);
@@ -432,7 +432,7 @@ const Index = () => {
     parcelaInfo?: string;
   }
   
-  // 🔖 NOVA FUNÇÃO: Obter dia de vencimento de uma conta
+  //  NOVA FUNÇÃO: Obter dia de vencimento de uma conta
   const getDiaVencimento = (conta: Conta) => {
     const match = conta.descricao?.match(/VENCIMENTO_(\d+)/);
     return match ? parseInt(match[1]) : null;
@@ -443,7 +443,7 @@ const Index = () => {
   // 1. Faturas de cartão vencendo (abertas E fechadas)
   faturasEmAberto.forEach(fatura => {
     const dataVencimento = new Date(fatura.data_vencimento);
-    // 🔖 CORREÇÃO: Zerar horário para comparar apenas datas
+    //  CORREÇÃO: Zerar horário para comparar apenas datas
     dataVencimento.setHours(0, 0, 0, 0);
     
     if (dataVencimento >= hojeBrasil && dataVencimento <= proximos7Dias) {
@@ -463,7 +463,7 @@ const Index = () => {
   // 2. Parcelas de carnê vencendo
   parcelasCarne.forEach(parcela => {
     const dataVencimento = new Date(parcela.data_vencimento);
-    // 🔖 CORREÇÃO: Zerar horário para comparar apenas datas
+    //  CORREÇÃO: Zerar horário para comparar apenas datas
     dataVencimento.setHours(0, 0, 0, 0);
     
     if (dataVencimento >= hojeBrasil && dataVencimento <= proximos7Dias && parcela.status === 'pendente') {
@@ -505,7 +505,7 @@ const Index = () => {
   // Ordenar por data de vencimento
   contasVencendo.sort((a, b) => a.dataVencimento.getTime() - b.dataVencimento.getTime());
   
-  // 🔖 NOVO: Encontrar o próximo vencimento
+  //  NOVO: Encontrar o próximo vencimento
   const proximoVencimento = contasVencendo.length > 0 ? contasVencendo[0] : null;
   
 

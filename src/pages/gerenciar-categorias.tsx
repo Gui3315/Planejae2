@@ -87,7 +87,7 @@ const GerenciarCategorias = () => {
   const [modalDetalhesOpen, setModalDetalhesOpen] = useState(false)
   const [categoriaDetalhes, setCategoriaDetalhes] = useState<RelatorioCategoria | null>(null)
 
-  // 🔖 Controla se já carregou dados para o usuário atual
+  // Controla se já carregou dados para o usuário atual
   const [userIdCarregado, setUserIdCarregado] = useState<string | null>(null)
 
   const [filtros, setFiltros] = useState<FiltrosRelatorio>({
