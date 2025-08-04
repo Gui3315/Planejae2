@@ -67,6 +67,7 @@ const NovaContaParcelada: React.FC = () => {
   // Estados para compra recorrente
   const [isRecorrente, setIsRecorrente] = useState(false)
   const [diaCobranca, setDiaCobranca] = useState(1)
+  const [dataFimRecorrente, setDataFimRecorrente] = useState("")
 
   useEffect(() => {
     async function carregarDados() {

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,9 +67,18 @@ interface ContaFixa {
   user_id: string
 }
 
+interface Categoria {
+  id: string
+  nome: string
+  cor: string
+  created_at: string
+  user_id: string
+}
+
 const ContasFixas = () => {
   const { user, loading: authLoading } = useAuthSession()
   const [contasFixas, setContasFixas] = useState<ContaFixa[]>([])
+  const [categorias, setCategorias] = useState<Categoria[]>([])
   const [parcelas, setParcelas] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
@@ -78,6 +88,7 @@ const ContasFixas = () => {
   const [formData, setFormData] = useState({
     titulo: "",
     valor_total: "",
+    categoria_id: "",
     descricao: "",
     varia_mensalmente: false,
     dia_vencimento: "10",
@@ -89,6 +100,7 @@ const ContasFixas = () => {
   useEffect(() => {
     if (user) {
       carregarContasFixas(user.id)
+      carregarCategorias(user.id)
     }
   }, [user])
 
@@ -127,6 +139,25 @@ const ContasFixas = () => {
     }
   }
 
+  const carregarCategorias = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("categorias")
+        .select("*")
+        .eq("user_id", userId)
+        .order("nome", { ascending: true })
+
+      if (error) {
+        console.error("Erro ao carregar categorias:", error)
+        return
+      }
+
+      setCategorias(data || [])
+    } catch (error) {
+      console.error("Erro ao carregar categorias:", error)
+    }
+  }
+
   const mostrarToast = (type: "success" | "error", text: string) => {
     setToast({ type, text })
     setTimeout(() => setToast(null), 3000)
@@ -147,6 +178,7 @@ const ContasFixas = () => {
       setFormData({
         titulo: conta.titulo,
         valor_total: conta.valor_total.toString(),
+        categoria_id: conta.categoria_id || "",
         descricao: descricaoVisivel,
         varia_mensalmente: conta.descricao?.includes("VARIA_MENSAL") || false,
         dia_vencimento: diaVencimento,
@@ -157,6 +189,7 @@ const ContasFixas = () => {
       setFormData({
         titulo: "",
         valor_total: "",
+        categoria_id: "",
         descricao: "",
         varia_mensalmente: false,
         dia_vencimento: "10",
@@ -188,6 +221,11 @@ const ContasFixas = () => {
   const getDiaVencimento = (conta: ContaFixa) => {
     const match = conta.descricao?.match(/VENCIMENTO_(\d+)/)
     return match ? Number.parseInt(match[1]) : null
+  }
+
+  const getCategoriaConta = (categoriaId: string | null) => {
+    if (!categoriaId) return null
+    return categorias.find(cat => cat.id === categoriaId) || null
   }
 
   const isLembreteProximo = (conta: ContaFixa) => {
@@ -235,7 +273,7 @@ const ContasFixas = () => {
       const contaData = {
         titulo: formData.titulo.trim(),
         valor_total: Number.parseFloat(formData.valor_total),
-        categoria_id: null,
+        categoria_id: formData.categoria_id || null,
         cartao_id: null,
         tipo_conta: "recorrente",
         total_parcelas: 1,
@@ -261,6 +299,7 @@ const ContasFixas = () => {
       setFormData({
         titulo: "",
         valor_total: "",
+        categoria_id: "",
         descricao: "",
         varia_mensalmente: false,
         dia_vencimento: "10",
@@ -374,7 +413,7 @@ const ContasFixas = () => {
                 size="lg"
               >
                 <Plus className="w-5 h-5 mr-2" />
-                Nova Despesa Fixa no Crédito/Carnê
+                Nova Despesa Fixa
               </Button>
             </div>
           </div>
@@ -498,6 +537,15 @@ const ContasFixas = () => {
                               </>
                             )}
                           </Badge>
+                          {getCategoriaConta(conta.categoria_id) && (
+                            <Badge variant="secondary" className="bg-purple-500/20 text-purple-300 border-purple-500/30 text-xs">
+                              <div
+                                className="w-2 h-2 rounded-full mr-1"
+                                style={{ backgroundColor: getCategoriaConta(conta.categoria_id)!.cor }}
+                              ></div>
+                              {getCategoriaConta(conta.categoria_id)!.nome}
+                            </Badge>
+                          )}
                           {isLembreteProximo(conta) && (
                             <Badge variant="secondary" className="bg-red-500/20 text-red-300 border-red-500/30 text-xs">
                               Lembrete!
@@ -623,6 +671,34 @@ const ContasFixas = () => {
                 className="bg-white/10 border-white/20 text-white placeholder:text-gray-400"
                 required
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="categoria" className="text-white">
+                Categoria
+              </Label>
+              <Select 
+                value={formData.categoria_id || "sem-categoria"} 
+                onValueChange={(value) => setFormData({ ...formData, categoria_id: value === "sem-categoria" ? "" : value })}
+              >
+                <SelectTrigger className="bg-white/10 border-white/20 text-white">
+                  <SelectValue placeholder="Selecione uma categoria" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="sem-categoria">Sem categoria</SelectItem>
+                  {categorias.map((categoria) => (
+                    <SelectItem key={categoria.id} value={categoria.id}>
+                      <div className="flex items-center space-x-2">
+                        <div
+                          className="w-3 h-3 rounded-full"
+                          style={{ backgroundColor: categoria.cor || "#6b7280" }}
+                        ></div>
+                        <span>{categoria.nome}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
 
             <div className="space-y-2">

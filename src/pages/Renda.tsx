@@ -328,7 +328,7 @@ const Renda = () => {
                         type="button" 
                         variant="outline" 
                         onClick={() => setModalOpen(false)}
-                        className="bg-white/5 border-white/10 backdrop-blur-sm hover:shadow-xl hover:scale-105 transition-all duration-300">
+                        className="bg-white/5 border-black/10 backdrop-blur-sm hover:shadow-xl hover:scale-105 transition-all duration-300">
                         Cancelar
                       </Button>
                       <Button 

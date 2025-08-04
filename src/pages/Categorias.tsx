@@ -111,7 +111,7 @@ const Categorias = () => {
   }
 
   // Função para salvar categoria (criar ou editar)
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent, opcoes?: { redirecionar: boolean }) => {
     e.preventDefault()
 
     if (!formData.nome.trim()) {
@@ -148,7 +148,13 @@ const Categorias = () => {
         showMessage("success", "Categoria criada com sucesso!")
       }
 
-      setModalOpen(false)
+      // Se não for para redirecionar, limpar formulário para nova categoria
+      if (opcoes && opcoes.redirecionar === false && !editingCategoria) {
+        limparFormulario()
+      } else {
+        setModalOpen(false)
+      }
+      
       if (user) await carregarCategorias(user.id)
     } catch (error) {
       console.error("Erro ao salvar categoria:", error)
@@ -156,6 +162,24 @@ const Categorias = () => {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // Função para salvar e continuar criando novas categorias
+  const handleSalvar = async (e: React.FormEvent) => {
+    await handleSubmit(e, { redirecionar: true })
+  }
+
+  const handleSalvarENovo = async (e: React.FormEvent) => {
+    await handleSubmit(e, { redirecionar: false })
+  }
+
+  // Função para limpar o formulário
+  const limparFormulario = () => {
+    setFormData({
+      nome: "",
+      cor: "#3B82F6",
+      ignorarsaldo: false,
+    })
   }
 
   // Função para excluir categoria
@@ -261,7 +285,7 @@ const Categorias = () => {
                 </DialogDescription>
               </DialogHeader>
 
-              <form onSubmit={handleSubmit} className="space-y-6 mt-6">
+              <form onSubmit={handleSalvar} className="space-y-6 mt-6">
                 <div className="space-y-3">
                   <Label htmlFor="nome" className="text-slate-700 font-semibold text-base flex items-center gap-2">
                     <Tag className="w-4 h-4" />
@@ -336,6 +360,28 @@ const Categorias = () => {
                   >
                     Cancelar
                   </Button>
+                  
+                  {!editingCategoria && (
+                    <Button
+                      type="button"
+                      onClick={handleSalvarENovo}
+                      disabled={submitting}
+                      className="bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white rounded-xl h-12 px-6 shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
+                    >
+                      {submitting ? (
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                          Salvando...
+                        </div>
+                      ) : (
+                        <>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Criar e Novo
+                        </>
+                      )}
+                    </Button>
+                  )}
+                  
                   <Button
                     type="submit"
                     disabled={submitting}
