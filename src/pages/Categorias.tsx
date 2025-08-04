@@ -29,12 +29,14 @@ interface Categoria {
   cor: string // Cor em formato hexadecimal
   created_at: string
   user_id: string
+  ignorarsaldo?: boolean // Campo opcional para ignorar saldo
 }
 
 // Interface para dados do formulário
 interface FormData {
   nome: string
   cor: string
+  ignorarsaldo?: boolean
 }
 
 const Categorias = () => {
@@ -46,6 +48,7 @@ const Categorias = () => {
   const [formData, setFormData] = useState<FormData>({
     nome: "",
     cor: "#3B82F6", // Cor padrão azul
+    ignorarsaldo: false, // Campo opcional para ignorar saldo
   })
   const [submitting, setSubmitting] = useState(false)
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
@@ -88,12 +91,14 @@ const Categorias = () => {
       setFormData({
         nome: categoria.nome,
         cor: categoria.cor,
+        ignorarsaldo: categoria.ignorarsaldo || false, // <-- CORRIGIDO: incluir o campo ignorarsaldo
       })
     } else {
       setEditingCategoria(null)
       setFormData({
         nome: "",
         cor: "#3B82F6",
+        ignorarsaldo: false, // <-- CORRIGIDO: incluir o campo ignorarsaldo
       })
     }
     setModalOpen(true)
@@ -121,6 +126,7 @@ const Categorias = () => {
         nome: formData.nome.trim(),
         cor: formData.cor,
         user_id: user!.id,
+        ignorarsaldo: formData.ignorarsaldo || false,
       }
 
       if (editingCategoria) {
@@ -306,6 +312,19 @@ const Categorias = () => {
                     />
                     <span>Preview da cor selecionada</span>
                   </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Label htmlFor="ignorarsaldo" className="text-slate-700 font-semibold text-base flex items-center gap-2">
+                    <input
+                      id="ignorarsaldo"
+                      type="checkbox"
+                      checked={formData.ignorarsaldo}
+                      onChange={(e) => setFormData({ ...formData, ignorarsaldo: e.target.checked })}
+                      className="mr-2"
+                    />
+                    Ignorar esta categoria no cálculo do saldo disponível
+                  </Label>
                 </div>
 
                 <DialogFooter className="gap-3 pt-6">

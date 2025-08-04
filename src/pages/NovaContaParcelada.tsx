@@ -6,7 +6,6 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { supabase } from "../integrations/supabase/client"
 import type { User } from "@supabase/supabase-js"
-import { useAuthSession } from "../hooks/useAuthSession"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -28,6 +27,8 @@ import {
   FileText,
   Tag,
   AlertCircle,
+  RotateCcw,
+  Info,
 } from "lucide-react"
 
 interface Cartao {
@@ -44,7 +45,6 @@ interface Cartao {
 }
 
 const NovaContaParcelada: React.FC = () => {
-  const { user, loading: authLoading } = useAuthSession()
   const [tipoParcelamento, setTipoParcelamento] = useState<"cartao" | "carne">("cartao")
   const [titulo, setTitulo] = useState("")
   const [valorTotal, setValorTotal] = useState("")
@@ -58,10 +58,15 @@ const NovaContaParcelada: React.FC = () => {
   const [categorias, setCategorias] = useState<any[]>([])
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [user, setUser] = useState<User | null>(null)
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const navigate = useNavigate()
 
   const [dadosRecarregados, setDadosRecarregados] = useState(false)
+  
+  // Estados para compra recorrente
+  const [isRecorrente, setIsRecorrente] = useState(false)
+  const [diaCobranca, setDiaCobranca] = useState(1)
 
   useEffect(() => {
     async function carregarDados() {
@@ -260,6 +265,33 @@ const NovaContaParcelada: React.FC = () => {
     }
   }, [cartaoId, tipoParcelamento, cartoes, parcelaInicial, dadosRecarregados])
 
+  useEffect(() => {
+    const checkAuth = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (session?.user) {
+        setUser(session.user)
+      } else {
+        navigate("/auth")
+      }
+    }
+
+    checkAuth()
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setUser(session.user)
+      } else {
+        navigate("/auth")
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [navigate])
+
   function limparFormulario() {
     setTitulo("")
     setValorTotal("")
@@ -271,6 +303,43 @@ const NovaContaParcelada: React.FC = () => {
     setDescricao("")
     setErro(null)
     setDadosRecarregados(false)
+    setIsRecorrente(false)
+    setDiaCobranca(1)
+  }
+
+  async function criarCompraRecorrente() {
+    try {
+      if (!user || !cartaoId) {
+        throw new Error("Usuário ou cartão não selecionado")
+      }
+
+      const compraRecorrentePayload = {
+        user_id: user.id,
+        cartao_id: cartaoId,
+        titulo: titulo,
+        valor: Number.parseFloat(valorTotal),
+        dia_cobranca: diaCobranca,
+        categoria_id: categoriaId,
+        descricao: descricao,
+        ativa: true,
+        data_inicio: new Date().toISOString().slice(0, 10),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      }
+
+      const { error } = await (supabase as any)
+        .from("compras_recorrentes_cartao")
+        .insert([compraRecorrentePayload])
+
+      if (error) {
+        throw new Error("Erro ao criar compra recorrente: " + error.message)
+      }
+
+      return true
+    } catch (error) {
+      console.error("Erro ao criar compra recorrente:", error)
+      throw error
+    }
   }
 
   async function handleSalvar(e: React.FormEvent) {
@@ -287,7 +356,13 @@ const NovaContaParcelada: React.FC = () => {
     setLoading(true)
 
     try {
-      if (!titulo || !valorTotal || !numParcelas || !dataPrimeiraParcela) {
+      if (!titulo || !valorTotal) {
+        setErro("Preencha todos os campos obrigatórios.")
+        setLoading(false)
+        return
+      }
+
+      if (!isRecorrente && (!numParcelas || !dataPrimeiraParcela)) {
         setErro("Preencha todos os campos obrigatórios.")
         setLoading(false)
         return
@@ -301,6 +376,27 @@ const NovaContaParcelada: React.FC = () => {
 
       if (!user) {
         setErro("Usuário não autenticado.")
+        setLoading(false)
+        return
+      }
+
+      // Se for compra recorrente, usar lógica diferente
+      if (isRecorrente) {
+        if (tipoParcelamento !== "cartao" || !cartaoId) {
+          setErro("Compras recorrentes só são permitidas no cartão de crédito.")
+          setLoading(false)
+          return
+        }
+
+        await criarCompraRecorrente()
+        
+        if (opcoes && opcoes.redirecionar === false) {
+          limparFormulario()
+          mostrarToast("success", "Compra recorrente criada com sucesso!")
+        } else {
+          mostrarToast("success", "Compra recorrente criada com sucesso!")
+          setTimeout(() => navigate("/"), 1000)
+        }
         setLoading(false)
         return
       }
@@ -526,50 +622,106 @@ const NovaContaParcelada: React.FC = () => {
                   </div>
                 </div>
 
+                {/* Opção de Compra Recorrente */}
+                {tipoParcelamento === "cartao" && (
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-3 p-4 bg-purple-500/10 border border-purple-500/20 rounded-lg">
+                      <Switch
+                        checked={isRecorrente}
+                        onCheckedChange={setIsRecorrente}
+                        className="data-[state=checked]:bg-purple-500"
+                      />
+                      <div className="flex items-center space-x-2">
+                        <RotateCcw className="w-5 h-5 text-purple-400" />
+                        <Label className="text-white font-medium">Compra Recorrente Mensal</Label>
+                      </div>
+                      <div className="ml-auto">
+                        <Info className="w-4 h-4 text-purple-400" />
+                      </div>
+                    </div>
+                    
+                    {isRecorrente && (
+                      <div className="space-y-4 p-4 bg-purple-500/5 border border-purple-500/10 rounded-lg">
+                        <div className="bg-purple-500/10 border border-purple-500/20 rounded-lg p-3">
+                          <p className="text-purple-300 text-sm">
+                            <Info className="w-4 h-4 inline mr-1" />
+                            Compras recorrentes são cobradas automaticamente todo mês no mesmo dia e valor.
+                          </p>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <Label htmlFor="diaCobranca" className="text-white font-medium">
+                            Dia da Cobrança Mensal *
+                          </Label>
+                          <Input
+                            id="diaCobranca"
+                            type="number"
+                            min="1"
+                            max="31"
+                            value={diaCobranca}
+                            onChange={(e) => setDiaCobranca(Number(e.target.value))}
+                            className="bg-white/10 border-white/20 text-white"
+                            required
+                          />
+                          <p className="text-sm text-purple-300">
+                            A cobrança será feita todo dia {diaCobranca} do mês
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Campo Número de Parcelas */}
-                  <div className="space-y-2">
-                    <Label htmlFor="numParcelas" className="text-white font-medium">
-                      Total de Parcelas *
-                    </Label>
-                    <div className="relative">
-                      <Hash className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  {!isRecorrente && (
+                    <div className="space-y-2">
+                      <Label htmlFor="numParcelas" className="text-white font-medium">
+                        Total de Parcelas *
+                      </Label>
+                      <div className="relative">
+                        <Hash className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                        <Input
+                          id="numParcelas"
+                          type="number"
+                          min="1"
+                          value={numParcelas}
+                          onChange={(e) => setNumParcelas(Number(e.target.value))}
+                          className="bg-white/10 border-white/20 text-white pl-10"
+                          required
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Campo Parcela Inicial */}
+                  {!isRecorrente && (
+                    <div className="space-y-2">
+                      <Label htmlFor="parcelaInicial" className="text-white font-medium">
+                        Começar da Parcela *
+                      </Label>
                       <Input
-                        id="numParcelas"
+                        id="parcelaInicial"
                         type="number"
                         min="1"
-                        value={numParcelas}
-                        onChange={(e) => setNumParcelas(Number(e.target.value))}
-                        className="bg-white/10 border-white/20 text-white pl-10"
+                        max={numParcelas}
+                        value={parcelaInicial}
+                        onChange={(e) => setParcelaInicial(Number(e.target.value))}
+                        className="bg-white/10 border-white/20 text-white"
                         required
                       />
                     </div>
-                  </div>
-
-                  {/* Campo Parcela Inicial */}
-                  <div className="space-y-2">
-                    <Label htmlFor="parcelaInicial" className="text-white font-medium">
-                      Começar da Parcela *
-                    </Label>
-                    <Input
-                      id="parcelaInicial"
-                      type="number"
-                      min="1"
-                      max={numParcelas}
-                      value={parcelaInicial}
-                      onChange={(e) => setParcelaInicial(Number(e.target.value))}
-                      className="bg-white/10 border-white/20 text-white"
-                      required
-                    />
-                  </div>
+                  )}
 
                   {/* Valor da Parcela (calculado) */}
-                  <div className="space-y-2">
-                    <Label className="text-white font-medium">Valor da Parcela</Label>
-                    <div className="bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white font-semibold">
-                      R$ {valorParcela.replace(".", ",")}
+                  {!isRecorrente && (
+                    <div className="space-y-2">
+                      <Label className="text-white font-medium">Valor da Parcela</Label>
+                      <div className="bg-white/5 border border-white/10 rounded-md px-3 py-2 text-white font-semibold">
+                        R$ {valorParcela.replace(".", ",")}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
@@ -617,34 +769,36 @@ const NovaContaParcelada: React.FC = () => {
               )}
 
               {/* Data da Primeira Parcela */}
-              <div className="space-y-4">
-                <h3 className="text-lg font-semibold text-white flex items-center">
-                  <Calendar className="w-5 h-5 mr-2 text-green-400" />
-                  Data de Vencimento
-                </h3>
+              {!isRecorrente && (
+                <div className="space-y-4">
+                  <h3 className="text-lg font-semibold text-white flex items-center">
+                    <Calendar className="w-5 h-5 mr-2 text-green-400" />
+                    Data de Vencimento
+                  </h3>
 
-                <div className="space-y-2">
-                  <Label htmlFor="dataPrimeiraParcela" className="text-white font-medium">
-                    Data da 1ª Parcela *
-                  </Label>
-                  <Input
-                    id="dataPrimeiraParcela"
-                    type="date"
-                    value={dataPrimeiraParcela}
-                    onChange={(e) => setDataPrimeiraParcela(e.target.value)}
-                    className="bg-white/10 border-white/20 text-white"
-                    required
-                  />
-                  {tipoParcelamento === "cartao" && cartaoId && (
-                    <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
-                      <p className="text-green-300 text-sm">
-                        <Calendar className="w-4 h-4 inline mr-1" />
-                        Data calculada automaticamente baseada no ciclo do cartão selecionado.
-                      </p>
-                    </div>
-                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="dataPrimeiraParcela" className="text-white font-medium">
+                      Data da 1ª Parcela *
+                    </Label>
+                    <Input
+                      id="dataPrimeiraParcela"
+                      type="date"
+                      value={dataPrimeiraParcela}
+                      onChange={(e) => setDataPrimeiraParcela(e.target.value)}
+                      className="bg-white/10 border-white/20 text-white"
+                      required
+                    />
+                    {tipoParcelamento === "cartao" && cartaoId && (
+                      <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-3">
+                        <p className="text-green-300 text-sm">
+                          <Calendar className="w-4 h-4 inline mr-1" />
+                          Data calculada automaticamente baseada no ciclo do cartão selecionado.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Informações Adicionais */}
               <div className="space-y-4">

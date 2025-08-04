@@ -73,6 +73,7 @@ interface FiltrosRelatorio {
   mes: number
   ano: number
   cartao_id: string | null
+  categoria_id: string | null
   // tipos removido
 }
 
@@ -93,6 +94,7 @@ const GerenciarCategorias = () => {
     mes: new Date().getMonth() + 1,
     ano: new Date().getFullYear(),
     cartao_id: null,
+    categoria_id: null,
     // tipos removido
   })
 
@@ -183,6 +185,11 @@ const GerenciarCategorias = () => {
       // Aplicar filtro de cartão
       if (filtros.cartao_id) {
         query = query.eq("contas.cartao_id", filtros.cartao_id)
+      }
+
+      // Aplicar filtro de categoria
+      if (filtros.categoria_id) {
+        query = query.eq("categoria_id", filtros.categoria_id)
       }
 
       const { data: parcelas, error } = await query
@@ -407,6 +414,36 @@ const GerenciarCategorias = () => {
                     {cartoes.map((cartao) => (
                       <SelectItem key={cartao.id} value={cartao.id}>
                         {cartao.nome}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* Seletor de Categoria */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <Filter className="w-4 h-4" />
+                  Categoria (Opcional)
+                </label>
+                <Select
+                  value={filtros.categoria_id || "todas"}
+                  onValueChange={(value) => setFiltros({ ...filtros, categoria_id: value === "todas" ? null : value })}
+                >
+                  <SelectTrigger className="bg-white/10 border-slate-300/30 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todas">Todas as categorias</SelectItem>
+                    {categorias.map((categoria) => (
+                      <SelectItem key={categoria.id} value={categoria.id}>
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: categoria.cor }}
+                          />
+                          {categoria.nome}
+                        </div>
                       </SelectItem>
                     ))}
                   </SelectContent>

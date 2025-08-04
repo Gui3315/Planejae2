@@ -64,6 +64,7 @@ interface Conta {
 interface Fatura {
   id: string
   cartao_id: string
+  mes_referencia: string
   mes: number
   ano: number
   valor_total: number
@@ -72,6 +73,7 @@ interface Fatura {
   data_vencimento: string
   status: string
   juros_aplicados: number
+  user_id: string
   created_at: string
   updated_at: string
 }
@@ -85,12 +87,29 @@ interface Pagamento {
   created_at: string
 }
 
+interface CompraRecorrente {
+  id: string
+  user_id: string
+  cartao_id: string
+  titulo: string
+  valor: number
+  categoria_id: string | null
+  dia_cobranca: number
+  ativa: boolean
+  data_inicio: string
+  data_fim: string | null
+  descricao: string | null
+  created_at: string
+  updated_at: string
+}
+
 const Faturas = () => {
   const { user, loading: authLoading } = useAuthSession()
   const [cartoes, setCartoes] = useState<Cartao[]>([])
   const [parcelas, setParcelas] = useState<any[]>([])
   const [contas, setContas] = useState<Conta[]>([])
   const [faturas, setFaturas] = useState<any[]>([])
+  const [comprasRecorrentes, setComprasRecorrentes] = useState<CompraRecorrente[]>([])
   const [loading, setLoading] = useState(true)
   const [modalPagamentoOpen, setModalPagamentoOpen] = useState(false)
   const [faturaSelecionada, setFaturaSelecionada] = useState<any | null>(null)
@@ -207,7 +226,7 @@ const Faturas = () => {
         setParcelas(parcelasData)
       }
 
-      const { data: faturasData, error: faturasError } = await supabase
+      const { data: faturasData, error: faturasError } = await (supabase as any)
         .from("faturas_cartao")
         .select("*")
         .eq("user_id", userId)
@@ -221,9 +240,22 @@ const Faturas = () => {
         setFaturas(faturasData as any)
       }
 
+      // Carregar compras recorrentes ativas
+      const { data: comprasRecorrentesData, error: comprasRecorrentesError } = await (supabase as any)
+        .from("compras_recorrentes_cartao")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("ativa", true)
+
+      if (comprasRecorrentesError) {
+        console.error("Erro ao carregar compras recorrentes:", comprasRecorrentesError)
+      } else if (comprasRecorrentesData) {
+        setComprasRecorrentes(comprasRecorrentesData as CompraRecorrente[])
+      }
+
       if (cartoesData && contasData && parcelasData) {
         try {
-          await gerarFaturasAutomaticas(cartoesData, contasData, parcelasData)
+          await gerarFaturasAutomaticas(cartoesData, contasData, parcelasData, comprasRecorrentesData || [])
         } catch (error) {
           console.error("🔖 Erro ao gerar faturas:", error)
         }
@@ -232,12 +264,15 @@ const Faturas = () => {
       await atualizarStatusFaturas(cartoesData)
     } catch (error) {
       console.error("Erro ao carregar dados:", error)
+    } finally {
+      setLoading(false)
     }
   }
 
   const atualizarStatusFaturas = async (cartoes: any[]) => {
     if (!user) return
     for (const cartao of cartoes) {
+      console.log("🔍 Processando cartão:", cartao.nome, "melhor_dia_compra:", cartao.melhor_dia_compra)
       if (!cartao.melhor_dia_compra) continue
 
       const faturasDoCartao = faturas.filter((f) => f.cartao_id === cartao.id)
@@ -248,29 +283,40 @@ const Faturas = () => {
           continue
         }
 
+        const hoje = new Date()
+        const dataVencimentoFatura = new Date(fatura.data_vencimento + "T03:00:00Z")
+        
+        console.log("🔍 Fatura:", fatura.mes_referencia, "status atual:", fatura.status)
+        console.log("🔍 Hoje:", hoje.toISOString().slice(0, 10))
+        console.log("🔍 Data vencimento:", dataVencimentoFatura.toISOString().slice(0, 10))
+
         const novoStatus = getStatusFaturaLocal(
           cartao.melhor_dia_compra,
           cartao.dia_vencimento,
-          new Date(),
-          new Date(fatura.data_vencimento + "T03:00:00Z"),
+          hoje,
+          dataVencimentoFatura,
           fatura.valor_pago,
           fatura.valor_total,
         )
 
+        console.log("🔍 Novo status calculado:", novoStatus)
+
         if (fatura.status !== novoStatus) {
-          const { error } = await supabase
+          const { error } = await (supabase as any)
             .from("faturas_cartao")
             .update({ status: novoStatus })
             .eq("id", fatura.id)
             .eq("user_id", user.id)
           if (error) {
             console.error("🔖 Erro ao atualizar status da fatura:", error)
+          } else {
+            console.log("✅ Status atualizado de", fatura.status, "para", novoStatus)
           }
         }
       }
     }
 
-    const { data: faturasAtualizadas, error: faturasError } = await supabase
+    const { data: faturasAtualizadas, error: faturasError } = await (supabase as any)
       .from("faturas_cartao")
       .select("*")
       .eq("user_id", user.id)
@@ -283,7 +329,7 @@ const Faturas = () => {
     }
   }
 
-  const gerarFaturasAutomaticas = async (cartoes: any[], contas: any[], parcelas: any[]) => {
+  const gerarFaturasAutomaticas = async (cartoes: any[], contas: any[], parcelas: any[], comprasRecorrentes: CompraRecorrente[]) => {
     if (!user) return
     for (const cartao of cartoes) {
       const contasDoCartao = contas.filter((c) => c.cartao_id === cartao.id)
@@ -293,7 +339,11 @@ const Faturas = () => {
         return conta && p.status === "pendente"
       })
 
+      // ✅ NOVA FUNCIONALIDADE: Buscar compras recorrentes do cartão
+      const comprasRecorrentesDoCartao = comprasRecorrentes.filter((cr) => cr.cartao_id === cartao.id && cr.ativa)
+
       const parcelasPorMes = new Map<string, any[]>()
+      const mesesComMovimentacao = new Set<string>()
 
       parcelasDoCartao.forEach((parcela) => {
         const dataVencimento = new Date(parcela.data_vencimento)
@@ -305,18 +355,92 @@ const Faturas = () => {
           parcelasPorMes.set(chave, [])
         }
         parcelasPorMes.get(chave)!.push(parcela)
+        mesesComMovimentacao.add(chave)
       })
 
-      for (const [chave, parcelasDoMes] of parcelasPorMes) {
+      // ✅ NOVA FUNCIONALIDADE: Adicionar meses que têm compras recorrentes
+      // Gerar faturas para os próximos 6 meses que tenham compras recorrentes
+      if (comprasRecorrentesDoCartao.length > 0) {
+        const hoje = new Date()
+        for (let i = 0; i < 6; i++) {
+          const dataFutura = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1)
+          const mes = dataFutura.getMonth() + 1
+          const ano = dataFutura.getFullYear()
+          const chave = `${ano}-${mes.toString().padStart(2, "0")}`
+          mesesComMovimentacao.add(chave)
+          
+          // Inicializar array de parcelas se não existir
+          if (!parcelasPorMes.has(chave)) {
+            parcelasPorMes.set(chave, [])
+          }
+        }
+      }
+
+      for (const chave of mesesComMovimentacao) {
         const [ano, mes] = chave.split("-")
         const anoNum = Number.parseInt(ano)
         const mesNum = Number.parseInt(mes)
+        const parcelasDoMes = parcelasPorMes.get(chave) || []
 
-        const valorTotal = parcelasDoMes.reduce((total, p) => total + p.valor_parcela, 0)
+        // ✅ Calcular valor das parcelas normais
+        const valorParcelas = parcelasDoMes.reduce((total, p) => total + p.valor_parcela, 0)
 
-        const faturaExistente = faturas.find((f) => f.cartao_id === cartao.id && f.mes === mesNum && f.ano === anoNum)
+        // ✅ NOVA FUNCIONALIDADE: Calcular valor das compras recorrentes para este mês
+        let valorComprasRecorrentes = 0
+        comprasRecorrentesDoCartao.forEach((compra) => {
+          const dataInicio = new Date(compra.data_inicio)
+          const mesInicio = dataInicio.getMonth() + 1
+          const anoInicio = dataInicio.getFullYear()
+          
+          // Verificar se a compra recorrente já deveria estar ativa neste mês
+          const dataFim = compra.data_fim ? new Date(compra.data_fim) : null
+          const mesFim = dataFim ? dataFim.getMonth() + 1 : null
+          const anoFim = dataFim ? dataFim.getFullYear() : null
+          
+          // A compra é válida se:
+          // 1. O mês/ano é igual ou posterior ao início
+          // 2. Não há data fim OU o mês/ano é anterior ou igual ao fim
+          const isDepoisInicio = (anoNum > anoInicio) || (anoNum === anoInicio && mesNum >= mesInicio)
+          const isAntesFim = !dataFim || (anoNum < anoFim!) || (anoNum === anoFim! && mesNum <= mesFim!)
+          
+          if (isDepoisInicio && isAntesFim) {
+            valorComprasRecorrentes += compra.valor
+          }
+        })
 
-        if (!faturaExistente && valorTotal > 0) {
+        const valorTotal = valorParcelas + valorComprasRecorrentes
+
+        const mesReferenciaFormatada = `${anoNum}-${mesNum.toString().padStart(2, "0")}-01`
+        const faturaExistente = faturas.find((f) => f.cartao_id === cartao.id && f.mes_referencia === mesReferenciaFormatada)
+
+        if (faturaExistente) {
+          // ✅ NOVA FUNCIONALIDADE: Atualizar fatura existente com compras recorrentes
+          const novoValorTotal = valorParcelas + valorComprasRecorrentes
+          if (novoValorTotal !== faturaExistente.valor_total && novoValorTotal > 0) {
+            const novoValorRestante = novoValorTotal - faturaExistente.valor_pago
+            
+            const { error } = await (supabase as any)
+              .from("faturas_cartao")
+              .update({
+                valor_total: novoValorTotal,
+                valor_restante: novoValorRestante,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", faturaExistente.id)
+              .eq("user_id", user.id)
+
+            if (!error) {
+              // Atualizar o estado local
+              setFaturas((prev) => 
+                prev.map((f) => 
+                  f.id === faturaExistente.id 
+                    ? { ...f, valor_total: novoValorTotal, valor_restante: novoValorRestante }
+                    : f
+                )
+              )
+            }
+          }
+        } else if (valorTotal > 0) {
           const mesVencimento = mesNum + 1
           const anoVencimento = mesVencimento > 12 ? anoNum + 1 : anoNum
           const mesVencimentoAjustado = mesVencimento > 12 ? 1 : mesVencimento
@@ -340,12 +464,14 @@ const Faturas = () => {
             }
           }
 
-          const { data: novaFatura, error } = await supabase
+          const { data: novaFatura, error } = await (supabase as any)
             .from("faturas_cartao")
             .insert({
               cartao_id: cartao.id,
               user_id: user.id,
               mes_referencia: `${anoNum}-${mesNum.toString().padStart(2, "0")}-01`,
+              mes: mesNum,
+              ano: anoNum,
               valor_total: valorTotal,
               valor_pago: 0,
               valor_restante: valorTotal,
@@ -420,6 +546,7 @@ const Faturas = () => {
       return mesVencimento === mes && anoVencimento === ano
     })
 
+    // ✅ Compras parceladas normais
     const compras = contasDoCartao
       .map((conta) => {
         const parcelasConta = parcelasDoMes.filter((p) => p.conta_id === conta.id)
@@ -430,6 +557,7 @@ const Faturas = () => {
         const numeroParcela = parcelasConta[0]?.numero_parcela || 1
 
         return {
+          tipo: "parcelada",
           titulo: conta.titulo,
           valor_total: conta.valor_total,
           parcelas: parcelasConta,
@@ -438,11 +566,44 @@ const Faturas = () => {
           valor_parcela: valorParcela,
           numero_parcela_atual: numeroParcela,
           data_criacao: conta.created_at,
+          categoria_id: conta.categoria_id,
         }
       })
       .filter(Boolean)
 
-    return compras
+    // ✅ NOVA FUNCIONALIDADE: Adicionar compras recorrentes válidas para este mês
+    const comprasRecorrentesDoCartao = comprasRecorrentes.filter((cr) => {
+      if (cr.cartao_id !== cartaoId || !cr.ativa) return false
+      
+      const dataInicio = new Date(cr.data_inicio)
+      const mesInicio = dataInicio.getMonth() + 1
+      const anoInicio = dataInicio.getFullYear()
+      
+      const dataFim = cr.data_fim ? new Date(cr.data_fim) : null
+      const mesFim = dataFim ? dataFim.getMonth() + 1 : null
+      const anoFim = dataFim ? dataFim.getFullYear() : null
+      
+      const isDepoisInicio = (ano > anoInicio) || (ano === anoInicio && mes >= mesInicio)
+      const isAntesFim = !dataFim || (ano < anoFim!) || (ano === anoFim! && mes <= mesFim!)
+      
+      return isDepoisInicio && isAntesFim
+    })
+
+    const comprasRecorrentesFormatadas = comprasRecorrentesDoCartao.map((compra) => ({
+      tipo: "recorrente",
+      titulo: compra.titulo,
+      valor_total: compra.valor,
+      parcelas: [],
+      valor_parcelas: compra.valor,
+      total_parcelas: null,
+      valor_parcela: compra.valor,
+      numero_parcela_atual: null,
+      data_criacao: compra.created_at,
+      descricao: compra.descricao,
+      categoria_id: compra.categoria_id,
+    }))
+
+    return [...compras, ...comprasRecorrentesFormatadas]
   }
 
   const getLancamentosDaFatura = async (cartaoId: string, ano: number, mes: number) => {
@@ -451,11 +612,21 @@ const Faturas = () => {
     const compras = getComprasDaFatura(cartaoId, ano, mes)
 
     compras.forEach((compra) => {
+      let descricao = ""
+      if (compra.tipo === "parcelada") {
+        descricao = `${compra.titulo} - Parcela ${compra.numero_parcela_atual} de ${compra.total_parcelas}`
+      } else if (compra.tipo === "recorrente") {
+        descricao = `${compra.titulo} - Compra Recorrente`
+      } else {
+        descricao = compra.titulo
+      }
+
       lancamentos.push({
         tipo: "compra",
-        descricao: `${compra.titulo} - Parcela ${compra.numero_parcela_atual} de ${compra.total_parcelas}`,
+        descricao: descricao,
         valor: compra.valor_parcelas,
         data: compra.data_criacao || new Date().toISOString(),
+        categoria_id: compra.categoria_id || null,
       })
     })
 
@@ -542,7 +713,7 @@ const Faturas = () => {
         novoValorTotal = faturaSelecionada.valor_total
       }
 
-      const { error: errorFatura } = await supabase
+      const { error: errorFatura } = await (supabase as any)
         .from("faturas_cartao")
         .update({
           valor_pago: novoValorPago,
@@ -623,7 +794,7 @@ const Faturas = () => {
         }
       }
 
-      const { data: faturasAtualizadas, error: faturasError } = await supabase
+      const { data: faturasAtualizadas, error: faturasError } = await (supabase as any)
         .from("faturas_cartao")
         .select("*")
         .eq("user_id", user!.id)
@@ -664,7 +835,8 @@ const Faturas = () => {
     // Para cada cartão, seleciona apenas uma fatura seguindo a prioridade:
     // 1. Fatura "fechada" (prioridade máxima)
     // 2. Fatura "aberta" (se não houver fechada)
-    // 3. Não mostra "paga" nem "prevista" (exceto no modal de detalhes)
+    // 3. Fatura "prevista" (se não houver fechada nem aberta)
+    // 4. Não mostra "paga" (faturas já pagas ficam no histórico)
     const faturasExibir: any[] = []
 
     faturasPorCartao.forEach((faturasDoCartao) => {
@@ -678,8 +850,14 @@ const Faturas = () => {
         const faturaAberta = faturasDoCartao.find((f) => f.status === "aberta")
         if (faturaAberta) {
           faturasExibir.push(faturaAberta)
+        } else {
+          // Se não houver fechada nem aberta, busca por prevista
+          const faturaPrevista = faturasDoCartao.find((f) => f.status === "prevista")
+          if (faturaPrevista) {
+            faturasExibir.push(faturaPrevista)
+          }
         }
-        // Não adiciona faturas com status "paga" ou "prevista"
+        // Não adiciona faturas com status "paga"
       }
     })
 

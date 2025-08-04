@@ -1,4 +1,13 @@
 import { useState, useEffect } from 'react';
+// ...existing code...
+interface Categoria {
+  id: string;
+  nome: string;
+  cor: string;
+  created_at: string;
+  user_id: string;
+  ignorarsaldo?: boolean;
+}
 import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -53,6 +62,7 @@ interface Conta {
   total_parcelas: number;
   descricao: string | null;
   cartao_id: string | null; // ID do cartão (se for conta parcelada)
+  categoria_id?: string | null; // ID da categoria
 }
 
 interface Parcela {
@@ -86,6 +96,19 @@ interface FaturaCartao {
   user_id: string;
 }
 
+interface CompraRecorrente {
+  id: string;
+  user_id: string;
+  cartao_id: string;
+  titulo: string;
+  valor: number;
+  categoria_id: string | null;
+  dia_cobranca: number;
+  ativa: boolean;
+  data_inicio: string;
+  data_fim: string | null;
+}
+
 const Index = () => {
   const { user, loading } = useAuthSession();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -98,6 +121,8 @@ const Index = () => {
   const [contasFixas, setContasFixas] = useState<Conta[]>([]); // Contas fixas para gastos
   const [parcelasCarne, setParcelasCarne] = useState<Parcela[]>([]); // Parcelas de carnê para gastos
   const [tiposRenda, setTiposRenda] = useState<TipoRenda[]>([]);
+  const [categorias, setCategorias] = useState<Categoria[]>([]); // <-- Adicionado estado para categorias
+  const [comprasRecorrentes, setComprasRecorrentes] = useState<CompraRecorrente[]>([]); // <-- Adicionado estado para compras recorrentes
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
@@ -127,7 +152,6 @@ const Index = () => {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && user) {
-        console.log('🔄 Aba voltou a ficar ativa, recarregando dados...');
         carregarDados(user.id);
       }
     };
@@ -200,6 +224,15 @@ const Index = () => {
       
       if (cartoesData) setCartoes(cartoesData);
 
+      // Carregar categorias
+      const { data: categoriasData } = await supabase
+        .from('categorias')
+        .select('*')
+        .eq('user_id', userId);
+      if (categoriasData) {
+        setCategorias(categoriasData);
+      }
+
       // Carregar contas
       const { data: contasData } = await supabase
         .from('contas')
@@ -257,6 +290,17 @@ const Index = () => {
         setContasFixas(contasFixasData);
       }
 
+      // 🔖 NOVO: Carregar compras recorrentes para gastos
+      const { data: comprasRecorrentesData } = await (supabase as any)
+        .from('compras_recorrentes_cartao')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('ativa', true);
+      
+      if (comprasRecorrentesData) {
+        setComprasRecorrentes(comprasRecorrentesData as unknown as CompraRecorrente[]);
+      }
+
       // 🔖 NOVO: Carregar parcelas de carnê (parcelas que não são de cartão)
       // Primeiro buscar contas parceladas sem cartão
       const { data: contasCarneData } = await supabase
@@ -300,22 +344,110 @@ const Index = () => {
   const rendaTotal = tiposRenda.reduce((total, tipo) => total + tipo.valor, 0);
   const salarioMensal = rendaTotal; // Usar apenas a nova estrutura de renda
   
-  // 🔖 NOVA LÓGICA: Calcular todos os gastos considerando pagamentos parciais
-  // 1. Faturas em aberto (valor restante após pagamentos parciais)
+  // Função para verificar se a categoria deve ser ignorada no saldo
+  const isIgnoradaNoSaldo = (categoriaId: string | undefined | null) => {
+    if (!categoriaId) return false;
+    const categoria = categorias.find(c => c.id === categoriaId);
+    return categoria?.ignorarsaldo === true;
+  };
+
+  // 🔖 NOVA LÓGICA: Calcular faturas considerando apenas parcelas e compras recorrentes sem categoria ignorada
   const totalFaturasRestantes = faturasEmAberto.reduce((total, fatura) => {
-    const valorRestante = fatura.valor_total - fatura.valor_pago;
-    return total + valorRestante;
+    // Buscar contas parceladas deste cartão
+    const contasDoCartao = contas.filter(conta => 
+      conta.cartao_id === fatura.cartao_id && 
+      conta.tipo_conta === 'parcelada'
+    );
+    
+    // Buscar compras recorrentes deste cartão
+    const comprasRecorrentesDoCartao = comprasRecorrentes.filter(compra => 
+      compra.cartao_id === fatura.cartao_id
+    );
+    
+    // Calcular valor das parcelas que não têm categoria ignorada
+    let valorParcelasValidas = 0;
+    
+    contasDoCartao.forEach(conta => {
+      // Se a categoria desta conta deve ser ignorada, pular
+      if (isIgnoradaNoSaldo(conta.categoria_id)) {
+        return;
+      }
+      
+      // Buscar parcelas desta conta no mês atual
+      const parcelasDaConta = parcelas.filter(parcela => 
+        parcela.conta_id === conta.id && 
+        parcela.status === 'pendente'
+      );
+      
+      valorParcelasValidas += parcelasDaConta.reduce((soma, parcela) => soma + parcela.valor_parcela, 0);
+    });
+    
+    // Calcular valor das compras recorrentes que não têm categoria ignorada
+    let valorComprasRecorrentesValidas = 0;
+    
+    comprasRecorrentesDoCartao.forEach(compra => {
+      // Se a categoria desta compra deve ser ignorada, pular
+      if (isIgnoradaNoSaldo(compra.categoria_id)) {
+        return;
+      }
+      
+      // Verificar se a compra recorrente está ativa no mês atual
+      const dataInicio = new Date(compra.data_inicio);
+      const mesInicio = dataInicio.getMonth() + 1;
+      const anoInicio = dataInicio.getFullYear();
+      
+      const dataFim = compra.data_fim ? new Date(compra.data_fim) : null;
+      const mesFim = dataFim ? dataFim.getMonth() + 1 : null;
+      const anoFim = dataFim ? dataFim.getFullYear() : null;
+      
+      // A compra é válida se:
+      // 1. O mês/ano atual é igual ou posterior ao início
+      // 2. Não há data fim OU o mês/ano atual é anterior ou igual ao fim
+      const mesAtualNum = new Date().getMonth() + 1;
+      const anoAtualNum = new Date().getFullYear();
+      
+      const isDepoisInicio = (anoAtualNum > anoInicio) || (anoAtualNum === anoInicio && mesAtualNum >= mesInicio);
+      const isAntesFim = !dataFim || (anoAtualNum < anoFim!) || (anoAtualNum === anoFim! && mesAtualNum <= mesFim!);
+      
+      if (isDepoisInicio && isAntesFim) {
+        valorComprasRecorrentesValidas += compra.valor;
+      }
+    });
+    
+    const valorTotalValido = valorParcelasValidas + valorComprasRecorrentesValidas;
+    
+    // Se não há movimentação válida, não incluir nada
+    if (valorTotalValido === 0) {
+      return total;
+    }
+    
+    // Se há movimentação válida, incluir proporcionalmente ao valor pago
+    const proporcaoValida = valorTotalValido / fatura.valor_total;
+    const valorRestanteProporcional = (fatura.valor_total - fatura.valor_pago) * proporcaoValida;
+    
+    return total + valorRestanteProporcional;
   }, 0);
   
-  // 2. Contas fixas
-  const totalContasFixas = contasFixas.reduce((total, conta) => total + conta.valor_total, 0);
-  
-  // 3. Parcelas de carnê
-  const totalParcelasCarne = parcelasCarne.reduce((total, parcela) => total + parcela.valor_parcela, 0);
-  
+  // 2. Contas fixas (ignorar categorias marcadas)
+  const contasFixasFiltradas = contasFixas.filter(conta => {
+    const ignorada = isIgnoradaNoSaldo(conta.categoria_id);
+    return !ignorada;
+  });
+
+  const totalContasFixas = contasFixasFiltradas.reduce((total, conta) => total + conta.valor_total, 0);
+
+  // 3. Parcelas de carnê (ignorar categorias marcadas)
+  const parcelasCarneFilradas = parcelasCarne.filter(parcela => {
+    const conta = contas.find(c => c.id === parcela.conta_id);
+    const ignorada = conta && isIgnoradaNoSaldo(conta.categoria_id);
+    return conta && !ignorada;
+  });
+
+  const totalParcelasCarne = parcelasCarneFilradas.reduce((total, parcela) => total + parcela.valor_parcela, 0);
+
   // 4. Total geral de gastos
   const totalGastosMes = totalFaturasRestantes + totalContasFixas + totalParcelasCarne;
-  
+
   const saldoDisponivel = salarioMensal - totalGastosMes;
   const percentualGasto = salarioMensal > 0 ? (totalGastosMes / salarioMensal) * 100 : 0;
 
