@@ -698,7 +698,7 @@ const Index = () => {
               </div>
               <h3 className="text-red-200 text-sm font-medium mb-1">Gastos Totais</h3>
               <p className="text-2xl font-bold text-white">
-                R$ {totalGastosMes.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                R$ {totalGastosMes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </CardContent>
           </Card>
@@ -721,7 +721,7 @@ const Index = () => {
                 Saldo Disponível
               </h3>
               <p className={`text-2xl font-bold ${saldoDisponivel >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                R$ {saldoDisponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                R$ {saldoDisponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </CardContent>
           </Card>
