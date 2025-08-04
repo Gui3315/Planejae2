@@ -21,13 +21,11 @@ export const useAuthSession = () => {
       }
 
       if (!session) {
-        console.log('❌ Sessão não encontrada, redirecionando para login...');
         setUser(null);
         navigate('/auth');
         return null;
       }
 
-      console.log('✅ Sessão válida:', session.user.id);
       setUser(session.user);
       return session.user;
     } catch (error) {
@@ -41,7 +39,6 @@ export const useAuthSession = () => {
   // Configurar listener de mudanças de autenticação
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log('🔄 Auth state changed:', event);
       
       if (event === 'SIGNED_OUT' || !session) {
         setUser(null);
@@ -63,7 +60,6 @@ export const useAuthSession = () => {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && user) {
-        console.log('👀 Aba voltou a ficar ativa, verificando sessão...');
         checkSession();
       }
     };
@@ -79,7 +75,6 @@ export const useAuthSession = () => {
   useEffect(() => {
     const handleWindowFocus = () => {
       if (user) {
-        console.log('🎯 Janela ganhou foco, verificando sessão...');
         checkSession();
       }
     };
