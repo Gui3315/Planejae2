@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { getStatusFatura } from "../lib/faturas"
+import { calcularVencimentoCompra, calcularCicloAtual, estaNoCiclo } from "../lib/ciclos-cartao"
 import {
   ArrowLeft,
   CreditCard,
@@ -272,7 +273,6 @@ const Faturas = () => {
   const atualizarStatusFaturas = async (cartoes: any[]) => {
     if (!user) return
     for (const cartao of cartoes) {
-      console.log("🔍 Processando cartão:", cartao.nome, "melhor_dia_compra:", cartao.melhor_dia_compra)
       if (!cartao.melhor_dia_compra) continue
 
       const faturasDoCartao = faturas.filter((f) => f.cartao_id === cartao.id)
@@ -286,20 +286,16 @@ const Faturas = () => {
         const hoje = new Date()
         const dataVencimentoFatura = new Date(fatura.data_vencimento + "T03:00:00Z")
         
-        console.log("🔍 Fatura:", fatura.mes_referencia, "status atual:", fatura.status)
-        console.log("🔍 Hoje:", hoje.toISOString().slice(0, 10))
-        console.log("🔍 Data vencimento:", dataVencimentoFatura.toISOString().slice(0, 10))
 
         const novoStatus = getStatusFaturaLocal(
           cartao.melhor_dia_compra,
           cartao.dia_vencimento,
-          hoje,
-          dataVencimentoFatura,
+          new Date(),
+          new Date(fatura.data_vencimento + "T03:00:00Z"),
           fatura.valor_pago,
           fatura.valor_total,
         )
 
-        console.log("🔍 Novo status calculado:", novoStatus)
 
         if (fatura.status !== novoStatus) {
           const { error } = await (supabase as any)
@@ -310,7 +306,6 @@ const Faturas = () => {
           if (error) {
             console.error("🔖 Erro ao atualizar status da fatura:", error)
           } else {
-            console.log("✅ Status atualizado de", fatura.status, "para", novoStatus)
           }
         }
       }
@@ -410,59 +405,78 @@ const Faturas = () => {
 
         const valorTotal = valorParcelas + valorComprasRecorrentes
 
-        const mesReferenciaFormatada = `${anoNum}-${mesNum.toString().padStart(2, "0")}-01`
-        const faturaExistente = faturas.find((f) => f.cartao_id === cartao.id && f.mes_referencia === mesReferenciaFormatada)
+        if (valorTotal > 0) {
+          const mesReferenciaFormatada = `${anoNum}-${mesNum.toString().padStart(2, "0")}-01`
+          
+          // ✅ VERIFICAR SE FATURA JÁ EXISTE NO BANCO ANTES DE INSERIR
+          const { data: faturaExistenteBanco, error: errorVerificacao } = await (supabase as any)
+            .from("faturas_cartao")
+            .select("*")
+            .eq("cartao_id", cartao.id)
+            .eq("user_id", user.id)
+            .eq("mes_referencia", mesReferenciaFormatada)
+            .maybeSingle()
 
-        if (faturaExistente) {
-          // ✅ NOVA FUNCIONALIDADE: Atualizar fatura existente com compras recorrentes
-          const novoValorTotal = valorParcelas + valorComprasRecorrentes
-          if (novoValorTotal !== faturaExistente.valor_total && novoValorTotal > 0) {
-            const novoValorRestante = novoValorTotal - faturaExistente.valor_pago
-            
-            const { error } = await (supabase as any)
-              .from("faturas_cartao")
-              .update({
-                valor_total: novoValorTotal,
-                valor_restante: novoValorRestante,
-                updated_at: new Date().toISOString(),
-              })
-              .eq("id", faturaExistente.id)
-              .eq("user_id", user.id)
+          if (errorVerificacao) {
+            console.error("🔖 Erro ao verificar fatura existente:", errorVerificacao)
+            continue
+          }
 
-            if (!error) {
-              // Atualizar o estado local
-              setFaturas((prev) => 
-                prev.map((f) => 
-                  f.id === faturaExistente.id 
-                    ? { ...f, valor_total: novoValorTotal, valor_restante: novoValorRestante }
-                    : f
+          if (faturaExistenteBanco) {
+            // ✅ Fatura já existe, apenas atualizar se necessário
+            const novoValorTotal = valorParcelas + valorComprasRecorrentes
+            if (novoValorTotal !== faturaExistenteBanco.valor_total && novoValorTotal > 0) {
+              const novoValorRestante = novoValorTotal - faturaExistenteBanco.valor_pago
+              
+              const { error } = await (supabase as any)
+                .from("faturas_cartao")
+                .update({
+                  valor_total: novoValorTotal,
+                  valor_restante: novoValorRestante,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", faturaExistenteBanco.id)
+                .eq("user_id", user.id)
+
+              if (!error) {
+                // Atualizar o estado local
+                setFaturas((prev) => 
+                  prev.map((f) => 
+                    f.id === faturaExistenteBanco.id 
+                      ? { ...f, valor_total: novoValorTotal, valor_restante: novoValorRestante }
+                      : f
+                  )
                 )
-              )
+              }
             }
-          }
-        } else if (valorTotal > 0) {
-          const mesVencimento = mesNum + 1
-          const anoVencimento = mesVencimento > 12 ? anoNum + 1 : anoNum
-          const mesVencimentoAjustado = mesVencimento > 12 ? 1 : mesVencimento
-          const dataVencimento = new Date(anoVencimento, mesVencimentoAjustado - 1, cartao.dia_vencimento)
-
-          const hoje = new Date()
-          let status = "aberta"
-
-          if (dataVencimento < hoje) {
-            status = "fechada"
+            continue // Pular para próxima iteração, não criar nova fatura
           }
 
+          // Usar as funções do ciclos-cartao.ts para calcular o vencimento corretamente
+          const dataReferenciaFatura = new Date(anoNum, mesNum - 1, 15) // Meio do mês como referência
+          
+          let dataVencimento: Date
           if (cartao.melhor_dia_compra) {
-            const ultimoDiaAberto = cartao.melhor_dia_compra - 1
-            const mesFechamento = mesVencimentoAjustado === 1 ? 12 : mesVencimentoAjustado - 1
-            const anoFechamento = mesVencimentoAjustado === 1 ? anoVencimento - 1 : anoVencimento
-            const dataFechamento = new Date(anoFechamento, mesFechamento - 1, ultimoDiaAberto)
-
-            if (hoje > dataFechamento) {
-              status = "fechada"
-            }
+            // Usar função do ciclos-cartao para calcular vencimento preciso
+            dataVencimento = calcularVencimentoCompra(cartao.melhor_dia_compra, cartao.dia_vencimento, dataReferenciaFatura)
+          } else {
+            // Fallback para o método antigo se não há melhor dia configurado
+            const mesVencimento = mesNum + 1
+            const anoVencimento = mesVencimento > 12 ? anoNum + 1 : anoNum
+            const mesVencimentoAjustado = mesVencimento > 12 ? 1 : mesVencimento
+            dataVencimento = new Date(anoVencimento, mesVencimentoAjustado - 1, cartao.dia_vencimento)
           }
+
+          // Calcular status inicial usando a nova lógica
+          const hoje = new Date()
+          const statusInicial = getStatusFaturaLocal(
+            cartao.melhor_dia_compra,
+            cartao.dia_vencimento,
+            hoje,
+            dataVencimento,
+            0, // valor_pago inicial
+            valorTotal
+          )
 
           const { data: novaFatura, error } = await (supabase as any)
             .from("faturas_cartao")
@@ -476,12 +490,18 @@ const Faturas = () => {
               valor_pago: 0,
               valor_restante: valorTotal,
               data_vencimento: dataVencimento.toISOString().slice(0, 10),
-              status: status,
+              status: statusInicial,
             })
             .select()
             .single()
 
-          if (novaFatura && !error) {
+          if (error) {
+            if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict')) {
+              // Fatura já existe, ignorando conflito 409
+            } else {
+              console.error("🔖 Erro ao criar fatura:", error)
+            }
+          } else if (novaFatura) {
             setFaturas((prev) => [...prev, novaFatura])
           }
         }
@@ -872,11 +892,71 @@ const Faturas = () => {
     valorPago: number,
     valorTotal: number,
   ): "aberta" | "fechada" | "paga" | "prevista" => {
+    // Se já foi totalmente paga
+    if (valorPago >= valorTotal) {
+      return "paga"
+    }
+
+    // Se não tem melhor dia configurado, considera sempre aberta
     if (!melhorDiaCompra) {
       return "aberta"
     }
 
-    return getStatusFatura(melhorDiaCompra, diaVencimento, hoje, dataVencimentoFatura, valorPago, valorTotal)
+    // 🔖 NOVA LÓGICA CORRETA usando ciclos-cartao.ts
+    // A fatura tem uma data de vencimento, então primeiro precisamos descobrir 
+    // qual é o mês de referência das compras que essa fatura representa
+    
+    // Uma fatura que vence em setembro representa compras feitas em um período anterior
+    // Vamos calcular qual ciclo atual baseado no melhor dia de compra
+    const cicloAtual = calcularCicloAtual(melhorDiaCompra, hoje)
+
+    // USAR A MESMA LÓGICA DO NOVA_CONTA_PARCELADA.TSX QUE ESTAVA FUNCIONANDO:
+    // Simular uma compra no meio do mês da fatura para descobrir seu ciclo correto
+    const anoVencimento = dataVencimentoFatura.getFullYear()
+    const mesVencimento = dataVencimentoFatura.getMonth() + 1
+    
+    // Simular uma compra no dia 15 do mês da fatura
+    const compraSimulada = new Date(anoVencimento, mesVencimento - 1, 15)
+    
+    // Calcular quando essa compra venceria
+    const vencimentoCalculado = calcularVencimentoCompra(
+      melhorDiaCompra,
+      diaVencimento,
+      compraSimulada
+    )
+    
+    // Se o vencimento calculado não bate com o real, tentar um mês anterior
+    let dataCompraCorreta = compraSimulada
+    if (vencimentoCalculado.getTime() !== dataVencimentoFatura.getTime()) {
+      // Tentar mês anterior
+      const compraAnterior = new Date(anoVencimento, mesVencimento - 2, 15)
+      const vencimentoAnterior = calcularVencimentoCompra(
+        melhorDiaCompra,
+        diaVencimento,
+        compraAnterior
+      )
+      
+      if (vencimentoAnterior.getTime() === dataVencimentoFatura.getTime()) {
+        dataCompraCorreta = compraAnterior
+      }
+    }
+    
+    // Agora calcular o ciclo baseado na compra correta
+    const cicloFatura = calcularCicloAtual(melhorDiaCompra, dataCompraCorreta)
+
+    // Determinar status baseado na relação entre hoje e o ciclo da fatura
+    // Normalizar as datas para ignorar horários (mesma lógica do NovaContaParcelada.tsx)
+    const hojeSemHorario = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
+    const inicioSemHorario = new Date(cicloFatura.inicio.getFullYear(), cicloFatura.inicio.getMonth(), cicloFatura.inicio.getDate())
+    const fimSemHorario = new Date(cicloFatura.fim.getFullYear(), cicloFatura.fim.getMonth(), cicloFatura.fim.getDate())
+    
+    if (hojeSemHorario < inicioSemHorario) {
+      return "prevista"
+    } else if (hojeSemHorario >= inicioSemHorario && hojeSemHorario <= fimSemHorario) {
+      return "aberta"
+    } else {
+      return "fechada"
+    }
   }
 
   const getCorStatusFatura = (status: "aberta" | "fechada" | "paga" | "prevista") => {

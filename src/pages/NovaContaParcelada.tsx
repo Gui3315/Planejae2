@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { calcularVencimentoCompra } from "../lib/ciclos-cartao"
+import { calcularVencimentoCompra, calcularCicloAtual, estaNoCiclo } from "../lib/ciclos-cartao"
 import {
   ArrowLeft,
   CreditCard,
@@ -130,12 +130,18 @@ const NovaContaParcelada: React.FC = () => {
           const mesFatura = Number.parseInt(mesFaturaStr)
           const anoFaturaNum = Number.parseInt(anoFatura)
 
-          const { data: faturaExistente } = await supabase
+          const { data: faturaExistente, error: faturaError } = await supabase
             .from("faturas_cartao")
             .select("*")
             .eq("cartao_id", cartao.id)
             .eq("mes_referencia", `${anoFaturaNum}-${mesFatura.toString().padStart(2, "0")}-01`)
-            .single()
+            .maybeSingle()
+
+          // Se houver erro na consulta (exceto "não encontrado"), pular
+          if (faturaError && faturaError.code !== 'PGRST116') {
+            console.error("Erro ao verificar fatura existente:", faturaError)
+            continue
+          }
 
           const parcelasDoCartao =
             parcelas?.filter((p) => {
@@ -164,7 +170,7 @@ const NovaContaParcelada: React.FC = () => {
                 parcelaInicialNovaConta,
               )
 
-              await supabase.from("faturas_cartao").insert({
+              const { error: insertError } = await supabase.from("faturas_cartao").insert({
                 cartao_id: cartao.id,
                 mes_referencia: `${anoFaturaNum}-${mesFatura.toString().padStart(2, "0")}-01`,
                 valor_total: valorTotal,
@@ -174,6 +180,14 @@ const NovaContaParcelada: React.FC = () => {
                 status: statusFatura,
                 user_id: userId,
               })
+
+              if (insertError) {
+                console.error("🚨 NOVA_CONTA_PARCELADA - Erro ao inserir fatura:", insertError)
+                // Se for erro de duplicação, ignorar silenciosamente
+                if (insertError.code !== '23505') {
+                  throw insertError
+                }
+              }
             } else {
               await supabase
                 .from("faturas_cartao")
@@ -203,41 +217,67 @@ const NovaContaParcelada: React.FC = () => {
       return "aberta"
     }
 
+    // Se for uma conta parcelada já em andamento (parcela inicial > 1), 
+    // marcar faturas passadas como "paga"
     if (parcelaInicial > 1) {
       const dataVencimentoFatura = new Date(anoFatura, mesFatura - 1, cartao.dia_vencimento || 1)
-      const hoje = new Date()
-
+      
       if (dataVencimentoFatura < hoje) {
         return "paga"
       }
     }
 
-    // LÓGICA CORRETA: 
-    // A fatura de agosto representa as compras do ciclo que termina em agosto
-    // Ciclo da fatura de agosto: do melhor dia de julho até melhor dia de agosto (exclusive)
+    // USAR A MESMA LÓGICA DO FATURAS.TSX:
+    // Simular uma compra no meio do mês da fatura para descobrir seu ciclo correto
+    const melhorDia = cartao.melhor_dia_compra
+    const diaVencimento = cartao.dia_vencimento || 1
     
-    // Para fatura do mês X, o ciclo vai do melhor dia do mês X-1 até melhor dia do mês X
-    let mesAnterior = mesFatura - 1
-    let anoAnterior = anoFatura
-    if (mesAnterior < 1) {
-      mesAnterior = 12
-      anoAnterior--
+    // Simular uma compra no dia 15 do mês da fatura
+    const compraSimulada = new Date(anoFatura, mesFatura - 1, 15)
+    
+    // Calcular quando essa compra venceria
+    const vencimentoCalculado = calcularVencimentoCompra(
+      melhorDia,
+      diaVencimento,
+      compraSimulada
+    )
+    
+    // Data de vencimento real da fatura
+    const vencimentoRealFatura = new Date(anoFatura, mesFatura - 1, diaVencimento)
+    
+    // Se o vencimento calculado não bate com o real, tentar um mês anterior
+    let dataCompraCorreta = compraSimulada
+    if (vencimentoCalculado.getTime() !== vencimentoRealFatura.getTime()) {
+      // Tentar mês anterior
+      const compraAnterior = new Date(anoFatura, mesFatura - 2, 15)
+      const vencimentoAnterior = calcularVencimentoCompra(
+        melhorDia,
+        diaVencimento,
+        compraAnterior
+      )
+      
+      if (vencimentoAnterior.getTime() === vencimentoRealFatura.getTime()) {
+        dataCompraCorreta = compraAnterior
+      }
     }
     
-    const dataInicioCiclo = new Date(anoAnterior, mesAnterior - 1, cartao.melhor_dia_compra)
-    const dataFimCiclo = new Date(anoFatura, mesFatura - 1, cartao.melhor_dia_compra)
-
-    // Se hoje é antes do início do ciclo da fatura, ela está "prevista"
-    if (hoje < dataInicioCiclo) {
+    // Agora calcular o ciclo baseado na compra correta
+    const cicloFatura = calcularCicloAtual(melhorDia, dataCompraCorreta)
+    
+    // Comparar onde estamos em relação ao ciclo da fatura
+    // Normalizar as datas para ignorar horários
+    const hojeSemHorario = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
+    const inicioSemHorario = new Date(cicloFatura.inicio.getFullYear(), cicloFatura.inicio.getMonth(), cicloFatura.inicio.getDate())
+    const fimSemHorario = new Date(cicloFatura.fim.getFullYear(), cicloFatura.fim.getMonth(), cicloFatura.fim.getDate())
+    
+    if (hojeSemHorario < inicioSemHorario) {
       return "prevista"
     }
     
-    // Se hoje está dentro do ciclo (>= início e < fim), a fatura está "aberta"
-    if (hoje >= dataInicioCiclo && hoje < dataFimCiclo) {
+    if (hojeSemHorario >= inicioSemHorario && hojeSemHorario <= fimSemHorario) {
       return "aberta"
     }
     
-    // Se hoje é >= fim do ciclo, a fatura está "fechada"
     return "fechada"
   }
 

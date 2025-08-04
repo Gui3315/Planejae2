@@ -351,81 +351,12 @@ const Index = () => {
     return categoria?.ignorarsaldo === true;
   };
 
-  // 🔖 NOVA LÓGICA: Calcular faturas considerando apenas parcelas e compras recorrentes sem categoria ignorada
+  // 🔖 SIMPLIFICADA: Calcular faturas usando diretamente o valor restante das faturas
   const totalFaturasRestantes = faturasEmAberto.reduce((total, fatura) => {
-    // Buscar contas parceladas deste cartão
-    const contasDoCartao = contas.filter(conta => 
-      conta.cartao_id === fatura.cartao_id && 
-      conta.tipo_conta === 'parcelada'
-    );
-    
-    // Buscar compras recorrentes deste cartão
-    const comprasRecorrentesDoCartao = comprasRecorrentes.filter(compra => 
-      compra.cartao_id === fatura.cartao_id
-    );
-    
-    // Calcular valor das parcelas que não têm categoria ignorada
-    let valorParcelasValidas = 0;
-    
-    contasDoCartao.forEach(conta => {
-      // Se a categoria desta conta deve ser ignorada, pular
-      if (isIgnoradaNoSaldo(conta.categoria_id)) {
-        return;
-      }
-      
-      // Buscar parcelas desta conta no mês atual
-      const parcelasDaConta = parcelas.filter(parcela => 
-        parcela.conta_id === conta.id && 
-        parcela.status === 'pendente'
-      );
-      
-      valorParcelasValidas += parcelasDaConta.reduce((soma, parcela) => soma + parcela.valor_parcela, 0);
-    });
-    
-    // Calcular valor das compras recorrentes que não têm categoria ignorada
-    let valorComprasRecorrentesValidas = 0;
-    
-    comprasRecorrentesDoCartao.forEach(compra => {
-      // Se a categoria desta compra deve ser ignorada, pular
-      if (isIgnoradaNoSaldo(compra.categoria_id)) {
-        return;
-      }
-      
-      // Verificar se a compra recorrente está ativa no mês atual
-      const dataInicio = new Date(compra.data_inicio);
-      const mesInicio = dataInicio.getMonth() + 1;
-      const anoInicio = dataInicio.getFullYear();
-      
-      const dataFim = compra.data_fim ? new Date(compra.data_fim) : null;
-      const mesFim = dataFim ? dataFim.getMonth() + 1 : null;
-      const anoFim = dataFim ? dataFim.getFullYear() : null;
-      
-      // A compra é válida se:
-      // 1. O mês/ano atual é igual ou posterior ao início
-      // 2. Não há data fim OU o mês/ano atual é anterior ou igual ao fim
-      const mesAtualNum = new Date().getMonth() + 1;
-      const anoAtualNum = new Date().getFullYear();
-      
-      const isDepoisInicio = (anoAtualNum > anoInicio) || (anoAtualNum === anoInicio && mesAtualNum >= mesInicio);
-      const isAntesFim = !dataFim || (anoAtualNum < anoFim!) || (anoAtualNum === anoFim! && mesAtualNum <= mesFim!);
-      
-      if (isDepoisInicio && isAntesFim) {
-        valorComprasRecorrentesValidas += compra.valor;
-      }
-    });
-    
-    const valorTotalValido = valorParcelasValidas + valorComprasRecorrentesValidas;
-    
-    // Se não há movimentação válida, não incluir nada
-    if (valorTotalValido === 0) {
-      return total;
-    }
-    
-    // Se há movimentação válida, incluir proporcionalmente ao valor pago
-    const proporcaoValida = valorTotalValido / fatura.valor_total;
-    const valorRestanteProporcional = (fatura.valor_total - fatura.valor_pago) * proporcaoValida;
-    
-    return total + valorRestanteProporcional;
+    // Para faturas, usar diretamente o valor restante (valor_total - valor_pago)
+    // A filtragem por categoria já foi feita na geração das faturas
+    const valorRestante = fatura.valor_total - fatura.valor_pago;
+    return total + valorRestante;
   }, 0);
   
   // 2. Contas fixas (ignorar categorias marcadas)
@@ -487,10 +418,11 @@ const Index = () => {
     
     if (dataVencimento >= hojeBrasil && dataVencimento <= proximos7Dias) {
       const cartao = cartoes.find(c => c.id === fatura.cartao_id);
+      const valorRestante = fatura.valor_total - fatura.valor_pago;
       contasVencendo.push({
         id: fatura.id,
         titulo: `Fatura ${cartao?.nome || 'Cartão'}`,
-        valor: fatura.valor_restante,
+        valor: valorRestante,
         dataVencimento,
         tipo: 'cartao',
         cartaoNome: cartao?.nome
