@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { supabase } from "../integrations/supabase/client"
 import { useAuthSession } from '@/hooks/useAuthSession'
@@ -116,12 +116,21 @@ const Faturas = () => {
   const [comprasRecorrentes, setComprasRecorrentes] = useState<CompraRecorrente[]>([])
   const [categorias, setCategorias] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingStates, setLoadingStates] = useState({
+    cartoes: true,
+    faturas: true,
+    contas: true,
+    processamento: true
+  })
   const [modalPagamentoOpen, setModalPagamentoOpen] = useState(false)
   const [faturaSelecionada, setFaturaSelecionada] = useState<any | null>(null)
   const [valorPagamento, setValorPagamento] = useState("")
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const navigate = useNavigate()
+
+  // Cache para cálculos de status
+  const statusCache = useMemo(() => new Map(), [])
 
   const [modalDetalhesOpen, setModalDetalhesOpen] = useState(false)
   const [faturaDetalhes, setFaturaDetalhes] = useState<any | null>(null)
@@ -142,6 +151,80 @@ const Faturas = () => {
     setToast({ type, text })
     setTimeout(() => setToast(null), 3000)
   }
+
+  const faturasPorCartaoMemo = useMemo(() => {
+    const faturasMap = new Map()
+    
+    faturas.forEach(fatura => {
+      const dataVencimento = new Date(fatura.data_vencimento)
+      const mesVencimento = dataVencimento.getMonth() + 1
+      const anoVencimento = dataVencimento.getFullYear()
+      const key = `${fatura.cartao_id}_${anoVencimento}-${mesVencimento.toString().padStart(2, '0')}`
+      
+      if (!faturasMap.has(key)) {
+        faturasMap.set(key, [])
+      }
+      faturasMap.get(key).push(fatura)
+    })
+    
+    return faturasMap
+  }, [faturas])
+
+  const faturasRelevantes = useMemo(() => {
+    const faturasPorCartao = new Map()
+    
+    faturas.forEach(fatura => {
+      if (!faturasPorCartao.has(fatura.cartao_id)) {
+        faturasPorCartao.set(fatura.cartao_id, [])
+      }
+      faturasPorCartao.get(fatura.cartao_id).push(fatura)
+    })
+
+    const statusPriority = { 'fechada': 3, 'aberta': 2, 'prevista': 1, 'paga': 0 }
+    const faturasExibir = []
+    
+    faturasPorCartao.forEach(faturasDoCartao => {
+      const melhorFatura = faturasDoCartao
+        .filter(f => f.status !== 'paga')
+        .sort((a, b) => statusPriority[b.status] - statusPriority[a.status])[0]
+      
+      if (melhorFatura) {
+        faturasExibir.push(melhorFatura)
+      }
+    })
+
+    return faturasExibir
+  }, [faturas])
+
+  const comprasPorCartaoMemo = useMemo(() => {
+    const comprasMap = new Map()
+    
+    const contasPorCartao = new Map()
+    contas.forEach(conta => {
+      if (!contasPorCartao.has(conta.cartao_id)) {
+        contasPorCartao.set(conta.cartao_id, [])
+      }
+      contasPorCartao.get(conta.cartao_id).push(conta)
+    })
+    
+    parcelas.forEach(parcela => {
+      const conta = contas.find(c => c.id === parcela.conta_id)
+      if (!conta) return
+      
+      const dataVencimento = new Date(parcela.data_vencimento)
+      const mesVencimento = dataVencimento.getMonth() + 1
+      const anoVencimento = dataVencimento.getFullYear()
+      
+      const key = `${conta.cartao_id}_${anoVencimento}-${mesVencimento.toString().padStart(2, '0')}`
+      
+      if (!comprasMap.has(key)) {
+        comprasMap.set(key, [])
+      }
+      comprasMap.get(key).push(parcela)
+    })
+    
+    return { comprasMap, contasPorCartao }
+  }, [contas, parcelas])
 
   useEffect(() => {
     if (user) {
@@ -193,125 +276,127 @@ const Faturas = () => {
   }, [modalDetalhesOpen, faturaDetalhes, anoSelecionado, mesSelecionadoDetalhes])
 
   const carregarDados = async (userId: string) => {
+    console.time('🚀 CARREGAMENTO-TOTAL')
+    
     try {
-      const { data: cartoesData, error: cartoesError } = await supabase
-        .from("cartoes")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("ativo", true)
-        .order("nome", { ascending: true })
+      // ✅ FASE 1: Dados essenciais para mostrar interface (paralelo)
+      console.time('📊 FASE-1-ESSENCIAL')
+      const [cartoesResult, faturasResult] = await Promise.all([
+        supabase
+          .from("cartoes")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("ativo", true)
+          .order("nome", { ascending: true }),
+        (supabase as any)
+          .from("faturas_cartao")
+          .select("*")
+          .eq("user_id", userId)
+          .order("data_vencimento", { ascending: false })
+      ])
 
-      if (cartoesError) {
-        console.error("Erro ao carregar cartões:", cartoesError)
+      if (cartoesResult.error) {
+        console.error("Erro ao carregar cartões:", cartoesResult.error)
         return
       }
-      if (cartoesData) {
-        setCartoes(cartoesData)
-      }
-
-      // Carregar categorias
-      const { data: categoriasData, error: categoriasError } = await supabase
-        .from("categorias")
-        .select("*")
-        .eq("user_id", userId)
-        .order("nome", { ascending: true })
-
-      if (categoriasError) {
-        console.error("Erro ao carregar categorias:", categoriasError)
-      } else if (categoriasData) {
-        setCategorias(categoriasData)
-      }
-
-      const { data: contasData, error: contasError } = await supabase
-        .from("contas")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("tipo_conta", "parcelada")
-        .not("cartao_id", "is", null)
-
-      if (contasError) {
-        console.error("Erro ao carregar contas:", contasError)
+      if (faturasResult.error) {
+        console.error("Erro ao carregar faturas:", faturasResult.error)
         return
       }
-      if (contasData) {
-        setContas(contasData)
-      }
 
-      const { data: parcelasData, error: parcelasError } = await (supabase as any)
-        .from("parcelas")
-        .select("*")
-        .eq("user_id", userId) // ✅ Filtrar por user_id
-        .in("conta_id", contasData?.map((c) => c.id) || [])
+      // Setar dados essenciais imediatamente
+      if (cartoesResult.data) setCartoes(cartoesResult.data)
+      if (faturasResult.data) setFaturas(faturasResult.data as any)
+      
+      setLoadingStates(prev => ({ ...prev, cartoes: false, faturas: false }))
+      console.timeEnd('📊 FASE-1-ESSENCIAL')
 
-      if (parcelasError) {
-        console.error("Erro ao carregar parcelas:", parcelasError)
-        return
-      }
-      if (parcelasData) {
-        setParcelas(parcelasData)
-      }
+      // ✅ FASE 2: Dados complementares (paralelo)
+      console.time('📊 FASE-2-COMPLEMENTAR')
+      const [categoriasResult, contasResult, comprasRecorrentesResult] = await Promise.all([
+        supabase
+          .from("categorias")
+          .select("*")
+          .eq("user_id", userId)
+          .order("nome", { ascending: true }),
+        supabase
+          .from("contas")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("tipo_conta", "parcelada")
+          .not("cartao_id", "is", null),
+        (supabase as any)
+          .from("compras_recorrentes_cartao")
+          .select("*")
+          .eq("user_id", userId)
+          .eq("ativa", true)
+      ])
 
-      const { data: faturasData, error: faturasError } = await (supabase as any)
-        .from("faturas_cartao")
-        .select("*")
-        .eq("user_id", userId)
-        .order("data_vencimento", { ascending: false })
+      // Setar dados complementares
+      if (categoriasResult.data) setCategorias(categoriasResult.data)
+      if (contasResult.data) setContas(contasResult.data)
+      if (comprasRecorrentesResult.data) setComprasRecorrentes(comprasRecorrentesResult.data as CompraRecorrente[])
+      
+      setLoadingStates(prev => ({ ...prev, contas: false }))
+      console.timeEnd('📊 FASE-2-COMPLEMENTAR')
 
-      if (faturasError) {
-        console.error("Erro ao carregar faturas:", faturasError)
-        return
-      }
-      if (faturasData) {
-        setFaturas(faturasData as any)
-      }
+      // ✅ FASE 3: Parcelas (depende de contas)
+      console.time('📊 FASE-3-PARCELAS')
+      let parcelasData: any[] = []
+      if (contasResult.data && contasResult.data.length > 0) {
+        const { data: parcelasResult, error: parcelasError } = await (supabase as any)
+          .from("parcelas")
+          .select("*")
+          .eq("user_id", userId)
+          .in("conta_id", contasResult.data.map((c) => c.id))
 
-      // Carregar compras recorrentes ativas
-      const { data: comprasRecorrentesData, error: comprasRecorrentesError } = await (supabase as any)
-        .from("compras_recorrentes_cartao")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("ativa", true)
-
-      if (comprasRecorrentesError) {
-        console.error("Erro ao carregar compras recorrentes:", comprasRecorrentesError)
-      } else if (comprasRecorrentesData) {
-        setComprasRecorrentes(comprasRecorrentesData as CompraRecorrente[])
-      }
-
-      if (cartoesData && contasData && parcelasData) {
-        try {
-          await gerarFaturasAutomaticas(cartoesData, contasData, parcelasData, comprasRecorrentesData || [])
-        } catch (error) {
-          console.error(" Erro ao gerar faturas:", error)
+        if (parcelasError) {
+          console.error("Erro ao carregar parcelas:", parcelasError)
+        } else if (parcelasResult) {
+          parcelasData = parcelasResult
+          setParcelas(parcelasResult)
         }
       }
+      console.timeEnd('📊 FASE-3-PARCELAS')
 
-      await atualizarStatusFaturas(cartoesData)
+      // ✅ FASE 4: Processamento pesado em background
+      console.time('📊 FASE-4-PROCESSAMENTO')
+      if (cartoesResult.data && contasResult.data && parcelasData) {
+        await Promise.all([
+          gerarFaturasAutomaticas(cartoesResult.data, contasResult.data, parcelasData, comprasRecorrentesResult.data || [])
+        ])
+
+        // Atualizar status precisa ser depois das faturas geradas
+        await atualizarStatusFaturas(cartoesResult.data)
+      }
+      
+      setLoadingStates(prev => ({ ...prev, processamento: false }))
+      console.timeEnd('📊 FASE-4-PROCESSAMENTO')
+
     } catch (error) {
-      console.error("Erro ao carregar dados:", error)
+      console.error("❌ Erro ao carregar dados:", error)
     } finally {
       setLoading(false)
+      console.timeEnd('🚀 CARREGAMENTO-TOTAL')
     }
   }
 
   const atualizarStatusFaturas = async (cartoes: any[]) => {
     if (!user) return
+    
+    console.time('⚡ BATCH-UPDATE-STATUS')
+    const faturasParaAtualizar = []
+    
+    // Coleta todas as atualizações primeiro
     for (const cartao of cartoes) {
       if (!cartao.melhor_dia_compra) continue
 
-      const faturasDoCartao = faturas.filter((f) => f.cartao_id === cartao.id)
+      const faturasDoCartao = faturas.filter(f => f.cartao_id === cartao.id)
 
       for (const fatura of faturasDoCartao) {
-        // ✅ NÃO recalcular status de faturas que já estão como "paga" (faturas históricas)
-        if (fatura.status === "paga") {
-          continue
-        }
+        if (fatura.status === "paga") continue
 
-        const hoje = new Date()
-        const dataVencimentoFatura = new Date(fatura.data_vencimento + "T03:00:00Z")
-        
-
-        const novoStatus = getStatusFaturaLocal(
+        const novoStatus = getStatusFaturaLocalCached(
           cartao.melhor_dia_compra,
           cartao.dia_vencimento,
           new Date(),
@@ -320,21 +405,31 @@ const Faturas = () => {
           fatura.valor_total,
         )
 
-
         if (fatura.status !== novoStatus) {
-          const { error } = await (supabase as any)
-            .from("faturas_cartao")
-            .update({ status: novoStatus })
-            .eq("id", fatura.id)
-            .eq("user_id", user.id)
-          if (error) {
-            console.error(" Erro ao atualizar status da fatura:", error)
-          } else {
-          }
+          faturasParaAtualizar.push({
+            id: fatura.id,
+            status: novoStatus,
+            updated_at: new Date().toISOString()
+          })
         }
       }
     }
 
+    // Batch update - uma única operação
+    if (faturasParaAtualizar.length > 0) {
+      console.log(`🔄 Atualizando ${faturasParaAtualizar.length} faturas em batch`)
+      const { error } = await (supabase as any)
+        .from("faturas_cartao")
+        .upsert(faturasParaAtualizar, { onConflict: 'id' })
+      
+      if (error) {
+        console.error("Erro no batch update:", error)
+        console.timeEnd('⚡ BATCH-UPDATE-STATUS')
+        return
+      }
+    }
+
+    // Recarrega faturas apenas uma vez
     const { data: faturasAtualizadas, error: faturasError } = await (supabase as any)
       .from("faturas_cartao")
       .select("*")
@@ -342,28 +437,85 @@ const Faturas = () => {
       .order("data_vencimento", { ascending: false })
 
     if (faturasError) {
-      console.error(" Erro ao recarregar faturas:", faturasError)
+      console.error("Erro ao recarregar faturas:", faturasError)
     } else if (faturasAtualizadas) {
-      setFaturas(faturasAtualizadas as any)
+      setFaturas(faturasAtualizadas)
+      console.log(`✅ ${faturasAtualizadas.length} faturas recarregadas`)
     }
+    
+    console.timeEnd('⚡ BATCH-UPDATE-STATUS')
+  }
+
+  // Cache para otimizar cálculos de status
+  const getStatusFaturaLocalCached = (
+    melhorDiaCompra: number | undefined,
+    diaVencimento: number,
+    hoje: Date,
+    dataVencimentoFatura: Date,
+    valorPago: number,
+    valorTotal: number,
+  ): "aberta" | "fechada" | "paga" | "prevista" => {
+    // Criar chave única para cache
+    const cacheKey = `${melhorDiaCompra}_${diaVencimento}_${hoje.toDateString()}_${dataVencimentoFatura.toDateString()}_${valorPago}_${valorTotal}`
+    
+    // Verificar cache primeiro
+    if (statusCache.has(cacheKey)) {
+      return statusCache.get(cacheKey)
+    }
+    
+    // Calcular apenas se não estiver em cache
+    const status = getStatusFaturaLocal(melhorDiaCompra, diaVencimento, hoje, dataVencimentoFatura, valorPago, valorTotal)
+    
+    // Salvar no cache
+    statusCache.set(cacheKey, status)
+    
+    return status
   }
 
   const gerarFaturasAutomaticas = async (cartoes: any[], contas: any[], parcelas: any[], comprasRecorrentes: CompraRecorrente[]) => {
     if (!user) return
+    
+    console.time('🚀 GERAR-FATURAS-BATCH')
+    
+    // 1. Buscar TODAS as faturas existentes de uma vez
+    const { data: faturasExistentes, error: errorFaturas } = await (supabase as any)
+      .from("faturas_cartao")
+      .select("cartao_id, mes_referencia, id, valor_total, valor_pago")
+      .eq("user_id", user.id)
+    
+    if (errorFaturas) {
+      console.error("Erro ao buscar faturas existentes:", errorFaturas)
+      console.timeEnd('🚀 GERAR-FATURAS-BATCH')
+      return
+    }
+
+    // 2. Criar Set para busca O(1)
+    const faturasExistentesSet = new Set(
+      faturasExistentes?.map(f => `${f.cartao_id}_${f.mes_referencia}`) || []
+    )
+    
+    const faturasExistentesMap = new Map(
+      faturasExistentes?.map(f => [`${f.cartao_id}_${f.mes_referencia}`, f]) || []
+    )
+
+    // 3. Calcular TODAS as faturas que precisam ser criadas ou atualizadas
+    const faturasParaCriar = []
+    const faturasParaAtualizar = []
+    
     for (const cartao of cartoes) {
       const contasDoCartao = contas.filter((c) => c.cartao_id === cartao.id)
-
+      
       const parcelasDoCartao = parcelas.filter((p) => {
         const conta = contasDoCartao.find((c) => c.id === p.conta_id)
         return conta && p.status === "pendente"
       })
 
-      // ✅ NOVA FUNCIONALIDADE: Buscar compras recorrentes do cartão
       const comprasRecorrentesDoCartao = comprasRecorrentes.filter((cr) => cr.cartao_id === cartao.id && cr.ativa)
 
       const parcelasPorMes = new Map<string, any[]>()
       const mesesComMovimentacao = new Set<string>()
 
+      // Mapear parcelas por mês
       parcelasDoCartao.forEach((parcela) => {
         const dataVencimento = new Date(parcela.data_vencimento)
         const mes = dataVencimento.getMonth() + 1
@@ -377,8 +529,7 @@ const Faturas = () => {
         mesesComMovimentacao.add(chave)
       })
 
-      // ✅ NOVA FUNCIONALIDADE: Adicionar meses que têm compras recorrentes
-      // Gerar faturas para os próximos 6 meses que tenham compras recorrentes
+      // Adicionar meses com compras recorrentes
       if (comprasRecorrentesDoCartao.length > 0) {
         const hoje = new Date()
         for (let i = 0; i < 6; i++) {
@@ -388,37 +539,32 @@ const Faturas = () => {
           const chave = `${ano}-${mes.toString().padStart(2, "0")}`
           mesesComMovimentacao.add(chave)
           
-          // Inicializar array de parcelas se não existir
           if (!parcelasPorMes.has(chave)) {
             parcelasPorMes.set(chave, [])
           }
         }
       }
 
+      // Processar cada mês
       for (const chave of mesesComMovimentacao) {
         const [ano, mes] = chave.split("-")
         const anoNum = Number.parseInt(ano)
         const mesNum = Number.parseInt(mes)
         const parcelasDoMes = parcelasPorMes.get(chave) || []
 
-        // ✅ Calcular valor das parcelas normais
+        // Calcular valores
         const valorParcelas = parcelasDoMes.reduce((total, p) => total + p.valor_parcela, 0)
 
-        // ✅ NOVA FUNCIONALIDADE: Calcular valor das compras recorrentes para este mês
         let valorComprasRecorrentes = 0
         comprasRecorrentesDoCartao.forEach((compra) => {
           const dataInicio = new Date(compra.data_inicio)
           const mesInicio = dataInicio.getMonth() + 1
           const anoInicio = dataInicio.getFullYear()
           
-          // Verificar se a compra recorrente já deveria estar ativa neste mês
           const dataFim = compra.data_fim ? new Date(compra.data_fim) : null
           const mesFim = dataFim ? dataFim.getMonth() + 1 : null
           const anoFim = dataFim ? dataFim.getFullYear() : null
           
-          // A compra é válida se:
-          // 1. O mês/ano é igual ou posterior ao início
-          // 2. Não há data fim OU o mês/ano é anterior ou igual ao fim
           const isDepoisInicio = (anoNum > anoInicio) || (anoNum === anoInicio && mesNum >= mesInicio)
           const isAntesFim = !dataFim || (anoNum < anoFim!) || (anoNum === anoFim! && mesNum <= mesFim!)
           
@@ -431,83 +577,49 @@ const Faturas = () => {
 
         if (valorTotal > 0) {
           const mesReferenciaFormatada = `${anoNum}-${mesNum.toString().padStart(2, "0")}-01`
+          const chaveFatura = `${cartao.id}_${mesReferenciaFormatada}`
           
-          // ✅ VERIFICAR SE FATURA JÁ EXISTE NO BANCO ANTES DE INSERIR
-          const { data: faturaExistenteBanco, error: errorVerificacao } = await (supabase as any)
-            .from("faturas_cartao")
-            .select("*")
-            .eq("cartao_id", cartao.id)
-            .eq("user_id", user.id)
-            .eq("mes_referencia", mesReferenciaFormatada)
-            .maybeSingle()
-
-          if (errorVerificacao) {
-            console.error(" Erro ao verificar fatura existente:", errorVerificacao)
-            continue
-          }
-
-          if (faturaExistenteBanco) {
-            // ✅ Fatura já existe, apenas atualizar se necessário
-            const novoValorTotal = valorParcelas + valorComprasRecorrentes
-            if (novoValorTotal !== faturaExistenteBanco.valor_total && novoValorTotal > 0) {
-              const novoValorRestante = novoValorTotal - faturaExistenteBanco.valor_pago
-              
-              const { error } = await (supabase as any)
-                .from("faturas_cartao")
-                .update({
-                  valor_total: novoValorTotal,
-                  valor_restante: novoValorRestante,
-                  updated_at: new Date().toISOString(),
-                })
-                .eq("id", faturaExistenteBanco.id)
-                .eq("user_id", user.id)
-
-              if (!error) {
-                // Atualizar o estado local
-                setFaturas((prev) => 
-                  prev.map((f) => 
-                    f.id === faturaExistenteBanco.id 
-                      ? { ...f, valor_total: novoValorTotal, valor_restante: novoValorRestante }
-                      : f
-                  )
-                )
-              }
+          // Verificação O(1) em vez de query
+          if (faturasExistentesSet.has(chaveFatura)) {
+            // Fatura existe, verificar se precisa atualizar
+            const faturaExistente = faturasExistentesMap.get(chaveFatura) as any
+            if (faturaExistente && valorTotal !== faturaExistente.valor_total) {
+              const novoValorRestante = valorTotal - faturaExistente.valor_pago
+              faturasParaAtualizar.push({
+                id: faturaExistente.id,
+                valor_total: valorTotal,
+                valor_restante: novoValorRestante,
+                updated_at: new Date().toISOString()
+              })
             }
-            continue // Pular para próxima iteração, não criar nova fatura
-          }
-
-          // Usar as funções do ciclos-cartao.ts para calcular o vencimento corretamente
-          const dataReferenciaFatura = new Date(anoNum, mesNum - 1, 15) // Meio do mês como referência
-          
-          let dataVencimento: Date
-          if (cartao.melhor_dia_compra) {
-            // Usar função do ciclos-cartao para calcular vencimento preciso
-            dataVencimento = calcularVencimentoCompra(cartao.melhor_dia_compra, cartao.dia_vencimento, dataReferenciaFatura)
           } else {
-            // Fallback para o método antigo se não há melhor dia configurado
-            const mesVencimento = mesNum + 1
-            const anoVencimento = mesVencimento > 12 ? anoNum + 1 : anoNum
-            const mesVencimentoAjustado = mesVencimento > 12 ? 1 : mesVencimento
-            dataVencimento = new Date(anoVencimento, mesVencimentoAjustado - 1, cartao.dia_vencimento)
-          }
+            // Fatura não existe, criar nova
+            const dataReferenciaFatura = new Date(anoNum, mesNum - 1, 15)
+            
+            let dataVencimento: Date
+            if (cartao.melhor_dia_compra) {
+              dataVencimento = calcularVencimentoCompra(cartao.melhor_dia_compra, cartao.dia_vencimento, dataReferenciaFatura)
+            } else {
+              const mesVencimento = mesNum + 1
+              const anoVencimento = mesVencimento > 12 ? anoNum + 1 : anoNum
+              const mesVencimentoAjustado = mesVencimento > 12 ? 1 : mesVencimento
+              dataVencimento = new Date(anoVencimento, mesVencimentoAjustado - 1, cartao.dia_vencimento)
+            }
 
-          // Calcular status inicial usando a nova lógica
-          const hoje = new Date()
-          const statusInicial = getStatusFaturaLocal(
-            cartao.melhor_dia_compra,
-            cartao.dia_vencimento,
-            hoje,
-            dataVencimento,
-            0, // valor_pago inicial
-            valorTotal
-          )
+            const hoje = new Date()
+            const statusInicial = getStatusFaturaLocalCached(
+              cartao.melhor_dia_compra,
+              cartao.dia_vencimento,
+              hoje,
+              dataVencimento,
+              0,
+              valorTotal
+            )
 
-          const { data: novaFatura, error } = await (supabase as any)
-            .from("faturas_cartao")
-            .insert({
+            faturasParaCriar.push({
               cartao_id: cartao.id,
               user_id: user.id,
-              mes_referencia: `${anoNum}-${mesNum.toString().padStart(2, "0")}-01`,
+              mes_referencia: mesReferenciaFormatada,
               mes: mesNum,
               ano: anoNum,
               valor_total: valorTotal,
@@ -515,22 +627,55 @@ const Faturas = () => {
               valor_restante: valorTotal,
               data_vencimento: dataVencimento.toISOString().slice(0, 10),
               status: statusInicial,
+              created_at: new Date().toISOString()
             })
-            .select()
-            .single()
-
-          if (error) {
-            if (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict')) {
-              // Fatura já existe, ignorando conflito 409
-            } else {
-              console.error(" Erro ao criar fatura:", error)
-            }
-          } else if (novaFatura) {
-            setFaturas((prev) => [...prev, novaFatura])
           }
         }
       }
     }
+
+    // 4. Executar operações em batch
+    const promises = []
+    
+    if (faturasParaCriar.length > 0) {
+      console.log(`✅ Criando ${faturasParaCriar.length} faturas em batch`)
+      promises.push(
+        (supabase as any)
+          .from("faturas_cartao")
+          .insert(faturasParaCriar)
+      )
+    }
+    
+    if (faturasParaAtualizar.length > 0) {
+      console.log(`🔄 Atualizando ${faturasParaAtualizar.length} faturas em batch`)
+      promises.push(
+        (supabase as any)
+          .from("faturas_cartao")
+          .upsert(faturasParaAtualizar, { onConflict: 'id' })
+      )
+    }
+    
+    if (promises.length > 0) {
+      const results = await Promise.allSettled(promises)
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') {
+          console.error(`Erro na operação batch ${index}:`, result.reason)
+        }
+      })
+      
+      // Recarregar faturas após criação/atualização
+      const { data: novasFaturas } = await (supabase as any)
+        .from("faturas_cartao")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("data_vencimento", { ascending: false })
+      
+      if (novasFaturas) {
+        setFaturas(novasFaturas)
+      }
+    }
+    
+    console.timeEnd('🚀 GERAR-FATURAS-BATCH')
   }
 
   const calcularJuros = (fatura: any, cartao: Cartao) => {
@@ -866,31 +1011,15 @@ const Faturas = () => {
   }
 
   const getFaturasPorCartao = (cartaoId: string, ano: number, mes: number) => {
-    return faturas.filter((fatura) => {
-      if (fatura.cartao_id !== cartaoId) return false
-
-      const dataVencimento = new Date(fatura.data_vencimento)
-      const mesVencimento = dataVencimento.getMonth() + 1
-      const anoVencimento = dataVencimento.getFullYear()
-
-      return mesVencimento === mes && anoVencimento === ano
-    })
+    const key = `${cartaoId}_${ano}-${mes.toString().padStart(2, '0')}`
+    return faturasPorCartaoMemo.get(key) || []
   }
 
   const getComprasDaFatura = (cartaoId: string, ano: number, mes: number) => {
-    const contasDoCartao = contas.filter((conta) => conta.cartao_id === cartaoId)
-
-    const parcelasDoMes = parcelas.filter((parcela) => {
-      const conta = contasDoCartao.find((c) => c.id === parcela.conta_id)
-      if (!conta) return false
-
-      const dataVencimento = new Date(parcela.data_vencimento)
-      const mesVencimento = dataVencimento.getMonth() + 1
-      const anoVencimento = dataVencimento.getFullYear()
-
-      return mesVencimento === mes && anoVencimento === ano
-    })
-
+    const key = `${cartaoId}_${ano}-${mes.toString().padStart(2, '0')}`
+    const parcelasDoMes = comprasPorCartaoMemo.comprasMap.get(key) || []
+    const contasDoCartao = comprasPorCartaoMemo.contasPorCartao.get(cartaoId) || []
+    
     // ✅ Compras parceladas normais
     const compras = contasDoCartao
       .map((conta) => {
@@ -1332,18 +1461,38 @@ const Faturas = () => {
     }
   }
 
-  if (authLoading || loading) {
+  if (authLoading || loadingStates.cartoes || loadingStates.faturas) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 flex items-center justify-center">
         <div className="text-center">
           <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white text-lg">Carregando faturas...</p>
+          <p className="text-white text-lg">
+            {authLoading ? 'Verificando autenticação...' : 
+             loadingStates.cartoes ? 'Carregando cartões...' : 
+             'Carregando faturas...'}
+          </p>
+          {!authLoading && (
+            <div className="mt-4 text-sm text-gray-400">
+              <div className="flex justify-center space-x-4">
+                <span className={loadingStates.cartoes ? 'text-yellow-400' : 'text-green-400'}>
+                  {loadingStates.cartoes ? '⏳' : '✅'} Cartões
+                </span>
+                <span className={loadingStates.faturas ? 'text-yellow-400' : 'text-green-400'}>
+                  {loadingStates.faturas ? '⏳' : '✅'} Faturas
+                </span>
+                <span className={loadingStates.contas ? 'text-yellow-400' : 'text-green-400'}>
+                  {loadingStates.contas ? '⏳' : '✅'} Contas
+                </span>
+                <span className={loadingStates.processamento ? 'text-yellow-400' : 'text-green-400'}>
+                  {loadingStates.processamento ? '⏳' : '✅'} Processamento
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     )
   }
-
-  const faturasRelevantes = getFaturasRelevantes()
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
