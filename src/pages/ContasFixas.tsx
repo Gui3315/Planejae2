@@ -231,16 +231,8 @@ const ContasFixas = () => {
   const isLembreteProximo = (conta: ContaFixa) => {
     const diaLembrete = getDiaLembrete(conta)
     if (!diaLembrete) return false
-
     const hoje = new Date().getDate()
-    const proximoLembrete = new Date(new Date().getFullYear(), new Date().getMonth(), diaLembrete)
-
-    if (hoje > diaLembrete) {
-      proximoLembrete.setMonth(proximoLembrete.getMonth() + 1)
-    }
-
-    const diffDias = Math.ceil((proximoLembrete.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-    return diffDias <= 3
+    return hoje === diaLembrete
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -285,14 +277,15 @@ const ContasFixas = () => {
 
       if (editingConta) {
         const { data, error } = await supabase.from("contas").update(contaData).eq("id", editingConta.id).select()
-
         if (error) throw error
         mostrarToast("success", "Conta fixa atualizada com sucesso!")
+        // Atualiza a lista imediatamente para sumir o lembrete
+        if (user) await carregarContasFixas(user.id)
       } else {
         const { data, error } = await supabase.from("contas").insert([contaData]).select()
-
         if (error) throw error
         mostrarToast("success", "Conta fixa criada com sucesso!")
+        if (user) await carregarContasFixas(user.id)
       }
 
       setModalOpen(false)
@@ -305,8 +298,6 @@ const ContasFixas = () => {
         dia_vencimento: "10",
         dia_lembrete: "5",
       })
-
-      if (user) await carregarContasFixas(user.id)
     } catch (error) {
       console.error("Erro ao salvar conta fixa:", error)
       mostrarToast("error", `Erro: ${error instanceof Error ? error.message : "Erro desconhecido"}`)
@@ -547,7 +538,7 @@ const ContasFixas = () => {
                             </Badge>
                           )}
                           {isLembreteProximo(conta) && (
-                            <Badge variant="secondary" className="bg-red-500/20 text-red-300 border-red-500/30 text-xs">
+                            <Badge variant="secondary" className="w-15 h-6 bg-red-900/20 text-red-300 border-red-500/30 text-sm">
                               Lembrete!
                             </Badge>
                           )}
@@ -606,7 +597,7 @@ const ContasFixas = () => {
 
                   {/* Informações de contas variáveis */}
                   {isContaVariavel(conta) && (
-                    <>
+                    <div className="pt-2 border-t border-white/10">
                       <div className="flex justify-between items-center">
                         <span className="text-sm text-orange-300">Vencimento:</span>
                         <span className="text-sm text-orange-300">{getDiaVencimento(conta)}º do mês</span>
@@ -615,12 +606,12 @@ const ContasFixas = () => {
                         <span className="text-sm text-blue-300">Lembrete:</span>
                         <span className="text-sm text-blue-300">{getDiaLembrete(conta)}º do mês</span>
                       </div>
-                    </>
+                    </div>
                   )}
 
                   {/* Descrição */}
-                  {/* Exibir vencimento formatado se houver VENCIMENTO no campo descricao */}
-                  {conta.descricao && conta.descricao.match(/VENCIMENTO_(\d+)/) && (
+                  {/* Exibir vencimento formatado para contas fixas (não variáveis) se houver VENCIMENTO no campo descricao */}
+                  {!isContaVariavel(conta) && conta.descricao && conta.descricao.match(/VENCIMENTO_(\d+)/) && (
                     <div className="flex justify-between items-center pt-2 border-t border-white/10">
                       <span className="text-sm text-orange-300">Vencimento:</span>
                       <span className="text-sm text-orange-300">{conta.descricao.match(/VENCIMENTO_(\d+)/)[1]}º do mês</span>
