@@ -28,6 +28,7 @@ import {
   X,
   Edit2,
   Trash2,
+  RefreshCw,
 } from "lucide-react"
 
 interface Cartao {
@@ -107,6 +108,113 @@ interface CompraRecorrente {
   updated_at: string
 }
 
+// ✅ Função exportável para atualizar status das faturas 
+export const atualizarStatusFaturas = async (cartoes: any[], userId: string) => {
+  // Importar as dependências necessárias
+  const { getStatusFatura } = await import("../lib/faturas")
+  const { supabase } = await import("../integrations/supabase/client")
+  
+  console.time('⚡ BATCH-UPDATE-STATUS')
+  console.log('📊 Iniciando atualização de status para', cartoes.length, 'cartões')
+  
+  // Buscar faturas atuais do banco
+  const { data: faturasAtuais, error: errorFaturas } = await (supabase as any)
+    .from("faturas_cartao")
+    .select("*")
+    .eq("user_id", userId)
+    .order("data_vencimento", { ascending: false })
+
+  if (errorFaturas) {
+    console.error("❌ Erro ao buscar faturas:", errorFaturas)
+    return
+  }
+
+  console.log('📋 Total de faturas encontradas:', faturasAtuais?.length || 0)
+  console.log('📋 Cartões a processar:', cartoes.map(c => ({ 
+    id: c.id, 
+    nome: c.nome, 
+    melhor_dia: c.melhor_dia_compra, 
+    dia_venc: c.dia_vencimento 
+  })))
+
+  const faturasParaAtualizar = []
+  
+  // Coleta todas as atualizações primeiro
+  for (const cartao of cartoes) {
+    if (!cartao.melhor_dia_compra) {
+      console.log(`⚠️ Cartão ${cartao.nome} sem melhor_dia_compra configurado`)
+      continue
+    }
+
+    const faturasDoCartao = faturasAtuais?.filter((f: any) => f.cartao_id === cartao.id) || []
+    console.log(`📋 Cartão ${cartao.nome}: ${faturasDoCartao.length} faturas encontradas`)
+
+    for (const fatura of faturasDoCartao) {
+      if (fatura.status === "paga") continue
+
+      const hoje = new Date()
+      const dataVencimentoFatura = new Date(fatura.data_vencimento + "T03:00:00Z")
+      
+      // Usar a mesma lógica de cálculo de status que está no componente
+      const novoStatus = getStatusFatura(
+        cartao.melhor_dia_compra,
+        cartao.dia_vencimento,
+        hoje,
+        dataVencimentoFatura,
+        fatura.valor_pago,
+        fatura.valor_total,
+      )
+
+      console.log(`🔍 Fatura ${fatura.id} (${cartao.nome}):`, {
+        statusAtual: fatura.status,
+        novoStatus,
+        dataVencimento: dataVencimentoFatura.toLocaleDateString(),
+        melhorDia: cartao.melhor_dia_compra,
+        diaVencimento: cartao.dia_vencimento,
+        hoje: hoje.toLocaleDateString()
+      })
+
+      if (fatura.status !== novoStatus) {
+        console.log(`🔄 Fatura ${fatura.id}: ${fatura.status} → ${novoStatus}`)
+        faturasParaAtualizar.push({
+          id: fatura.id,
+          status: novoStatus,
+          updated_at: new Date().toISOString()
+        })
+      }
+    }
+  }
+
+  // Batch update - fazendo update individual para cada fatura
+  if (faturasParaAtualizar.length > 0) {
+    console.log(`🔄 Atualizando ${faturasParaAtualizar.length} faturas:`, faturasParaAtualizar)
+    
+    // Fazer update individual para cada fatura para evitar problemas de RLS
+    for (const fatura of faturasParaAtualizar) {
+      const { error } = await (supabase as any)
+        .from("faturas_cartao")
+        .update({ 
+          status: fatura.status, 
+          updated_at: fatura.updated_at 
+        })
+        .eq("id", fatura.id)
+        .eq("user_id", userId) // Adicionar user_id para respeitar RLS
+      
+      if (error) {
+        console.error(`❌ Erro ao atualizar fatura ${fatura.id}:`, error)
+      } else {
+        console.log(`✅ Fatura ${fatura.id} atualizada: ${fatura.status}`)
+      }
+    }
+    
+    console.log('✅ Todas as faturas foram processadas')
+  } else {
+    console.log('ℹ️ Nenhuma fatura precisou ser atualizada')
+  }
+  
+  console.timeEnd('⚡ BATCH-UPDATE-STATUS')
+}
+
 const Faturas = () => {
   const { user, loading: authLoading } = useAuthSession()
   const [cartoes, setCartoes] = useState<Cartao[]>([])
@@ -127,7 +235,180 @@ const Faturas = () => {
   const [valorPagamento, setValorPagamento] = useState("")
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null)
+  const [lastUpdate, setLastUpdate] = useState(Date.now())
   const navigate = useNavigate()
+
+  // ========================================
+  // 🚀 PERFORMANCE + REATIVIDADE
+  // ========================================
+
+  // 🔄 REATIVIDADE COM REALTIME - Atualizações automáticas
+  useEffect(() => {
+    if (!user) return
+
+    console.log('🔄 Configurando subscriptions para reatividade...')
+    
+    const subscriptions = [
+      // ✅ 1. Cartões - mudanças no melhor_dia_compra ou configurações
+      supabase
+        .channel("cartoes-realtime-changes")
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "cartoes",
+          filter: `user_id=eq.${user.id}`,
+        }, async (payload) => {
+          console.log('🔄 Cartão atualizado:', payload)
+          
+          // Se mudou melhor_dia_compra, recarregar tudo
+          if (payload.eventType === 'UPDATE' && 
+              payload.new?.melhor_dia_compra !== payload.old?.melhor_dia_compra) {
+            console.log('📅 Melhor dia alterado, recarregando dados...')
+            await carregarDados(user.id)
+          } else {
+            // Apenas atualizar cartão específico
+            setCartoes(prev => prev.map(cartao =>
+              cartao.id === (payload.new as any)?.id ? payload.new as any : cartao
+            ))
+          }
+          setLastUpdate(Date.now())
+        }),
+
+      // ✅ 2. Faturas - atualizações de status, pagamentos, valores
+      supabase
+        .channel("faturas-realtime-changes")
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "faturas_cartao",
+          filter: `user_id=eq.${user.id}`,
+        }, (payload) => {
+          console.log('💳 Fatura atualizada:', payload)
+          
+          if (payload.eventType === 'INSERT') {
+            setFaturas(prev => [...prev, payload.new])
+          } else if (payload.eventType === 'UPDATE') {
+            setFaturas(prev => prev.map(fatura =>
+              fatura.id === payload.new.id ? payload.new : fatura
+            ))
+          } else if (payload.eventType === 'DELETE') {
+            setFaturas(prev => prev.filter(fatura => fatura.id !== payload.old.id))
+          }
+          setLastUpdate(Date.now())
+        }),
+
+      // ✅ 3. Contas parceladas - novas compras parceladas
+      supabase
+        .channel("contas-realtime-changes")
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "contas",
+          filter: `user_id=eq.${user.id}`,
+        }, async (payload) => {
+          console.log('🛒 Conta atualizada:', payload)
+          
+          if (payload.eventType === 'INSERT') {
+            setContas(prev => [...prev, payload.new as any])
+            // Nova conta pode gerar novas faturas
+            await carregarDados(user.id)
+          } else if (payload.eventType === 'UPDATE') {
+            setContas(prev => prev.map(conta =>
+              conta.id === (payload.new as any)?.id ? payload.new as any : conta
+            ))
+          } else if (payload.eventType === 'DELETE') {
+            setContas(prev => prev.filter(conta => conta.id !== (payload.old as any)?.id))
+            // Conta removida pode afetar faturas
+            await carregarDados(user.id)
+          }
+          setLastUpdate(Date.now())
+        }),
+
+      // ✅ 4. Parcelas - status de pagamento das parcelas
+      supabase
+        .channel("parcelas-realtime-changes")
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "parcelas",
+          filter: `user_id=eq.${user.id}`,
+        }, (payload) => {
+          console.log('📊 Parcela atualizada:', payload)
+          
+          if (payload.eventType === 'INSERT') {
+            setParcelas(prev => [...prev, payload.new as any])
+          } else if (payload.eventType === 'UPDATE') {
+            setParcelas(prev => prev.map(parcela =>
+              parcela.id === (payload.new as any)?.id ? payload.new as any : parcela
+            ))
+          } else if (payload.eventType === 'DELETE') {
+            setParcelas(prev => prev.filter(parcela => parcela.id !== (payload.old as any)?.id))
+          }
+          setLastUpdate(Date.now())
+        }),
+
+      // ✅ 5. Compras recorrentes - ativação/desativação
+      supabase
+        .channel("compras-recorrentes-realtime-changes")
+        .on("postgres_changes", {
+          event: "*",
+          schema: "public",
+          table: "compras_recorrentes_cartao",
+          filter: `user_id=eq.${user.id}`,
+        }, async (payload) => {
+          console.log('🔄 Compra recorrente atualizada:', payload)
+          
+          if (payload.eventType === 'INSERT') {
+            setComprasRecorrentes(prev => [...prev, payload.new as any])
+          } else if (payload.eventType === 'UPDATE') {
+            setComprasRecorrentes(prev => prev.map(compra =>
+              compra.id === (payload.new as any)?.id ? payload.new as any : compra
+            ))
+          } else if (payload.eventType === 'DELETE') {
+            setComprasRecorrentes(prev => prev.filter(compra => compra.id !== (payload.old as any)?.id))
+          }
+          
+          // Compras recorrentes podem afetar faturas futuras
+          await carregarDados(user.id)
+          setLastUpdate(Date.now())
+        })
+    ]
+
+    // Subscrever a todos os canais
+    subscriptions.forEach(subscription => subscription.subscribe())
+
+    console.log('✅ Subscriptions ativas:', subscriptions.length)
+
+    // Cleanup
+    return () => {
+      console.log('🧹 Removendo subscriptions...')
+      subscriptions.forEach(subscription => supabase.removeChannel(subscription))
+    }
+  }, [user])
+
+  // ⏰ ATUALIZAÇÃO AUTOMÁTICA PERIÓDICA - Para garantir que status das faturas sejam atualizados
+  useEffect(() => {
+    if (!user || !cartoes.length) return
+
+    
+    
+    // Atualizar status a cada 5 minutos
+    const intervalId = setInterval(async () => {
+      
+      try {
+        await atualizarStatusFaturas(cartoes)
+        setLastUpdate(Date.now())
+        
+      } catch (error) {
+        
+      }
+    }, 5 * 60 * 1000) // 5 minutos
+
+    return () => {
+      console.log('🧹 Removendo timer de atualização automática...')
+      clearInterval(intervalId)
+    }
+  }, [user, cartoes])
 
   // Cache para cálculos de status
   const statusCache = useMemo(() => new Map(), [])
@@ -150,6 +431,25 @@ const Faturas = () => {
   const mostrarToast = (type: "success" | "error", text: string) => {
     setToast({ type, text })
     setTimeout(() => setToast(null), 3000)
+  }
+
+  // 🔄 REFRESH MANUAL - Para forçar atualização completa
+  const refreshDados = async () => {
+    if (!user) return
+    
+    console.log('🔄 Refresh manual iniciado...')
+    setLoading(true)
+    
+    try {
+      await carregarDados(user.id)
+      setLastUpdate(Date.now())
+      mostrarToast("success", "Dados atualizados com sucesso!")
+    } catch (error) {
+      console.error('❌ Erro no refresh manual:', error)
+      mostrarToast("error", "Erro ao atualizar dados")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const faturasPorCartaoMemo = useMemo(() => {
@@ -385,27 +685,46 @@ const Faturas = () => {
     if (!user) return
     
     console.time('⚡ BATCH-UPDATE-STATUS')
+    console.log('📊 Iniciando atualização de status para', cartoes.length, 'cartões')
+    
     const faturasParaAtualizar = []
     
     // Coleta todas as atualizações primeiro
     for (const cartao of cartoes) {
-      if (!cartao.melhor_dia_compra) continue
+      if (!cartao.melhor_dia_compra) {
+        console.log(`⚠️ Cartão ${cartao.nome} sem melhor_dia_compra configurado`)
+        continue
+      }
 
       const faturasDoCartao = faturas.filter(f => f.cartao_id === cartao.id)
+      console.log(`📋 Cartão ${cartao.nome}: ${faturasDoCartao.length} faturas encontradas`)
 
       for (const fatura of faturasDoCartao) {
         if (fatura.status === "paga") continue
 
+        const hoje = new Date()
+        const dataVencimentoFatura = new Date(fatura.data_vencimento + "T03:00:00Z")
+        
         const novoStatus = getStatusFaturaLocalCached(
           cartao.melhor_dia_compra,
           cartao.dia_vencimento,
-          new Date(),
-          new Date(fatura.data_vencimento + "T03:00:00Z"),
+          hoje,
+          dataVencimentoFatura,
           fatura.valor_pago,
           fatura.valor_total,
         )
 
+        console.log(`🔍 Fatura ${fatura.id} (${cartao.nome}):`, {
+          statusAtual: fatura.status,
+          novoStatus,
+          dataVencimento: dataVencimentoFatura.toLocaleDateString(),
+          melhorDia: cartao.melhor_dia_compra,
+          diaVencimento: cartao.dia_vencimento,
+          hoje: hoje.toLocaleDateString()
+        })
+
         if (fatura.status !== novoStatus) {
+          console.log(`🔄 Fatura ${fatura.id}: ${fatura.status} → ${novoStatus}`)
           faturasParaAtualizar.push({
             id: fatura.id,
             status: novoStatus,
@@ -417,16 +736,20 @@ const Faturas = () => {
 
     // Batch update - uma única operação
     if (faturasParaAtualizar.length > 0) {
-      console.log(`🔄 Atualizando ${faturasParaAtualizar.length} faturas em batch`)
+      console.log(`🔄 Atualizando ${faturasParaAtualizar.length} faturas em batch:`, faturasParaAtualizar)
       const { error } = await (supabase as any)
         .from("faturas_cartao")
         .upsert(faturasParaAtualizar, { onConflict: 'id' })
       
       if (error) {
-        console.error("Erro no batch update:", error)
+        console.error("❌ Erro no batch update:", error)
         console.timeEnd('⚡ BATCH-UPDATE-STATUS')
         return
       }
+      
+      console.log('✅ Batch update realizado com sucesso')
+    } else {
+      console.log('ℹ️ Nenhuma fatura precisou ser atualizada')
     }
 
     // Recarrega faturas apenas uma vez
@@ -437,7 +760,7 @@ const Faturas = () => {
       .order("data_vencimento", { ascending: false })
 
     if (faturasError) {
-      console.error("Erro ao recarregar faturas:", faturasError)
+      console.error("❌ Erro ao recarregar faturas:", faturasError)
     } else if (faturasAtualizadas) {
       setFaturas(faturasAtualizadas)
       console.log(`✅ ${faturasAtualizadas.length} faturas recarregadas`)
@@ -1530,6 +1853,35 @@ const Faturas = () => {
                   <h1 className="text-4xl font-bold text-white tracking-tight drop-shadow-lg">Controle de Faturas</h1>
                   <p className="text-xl text-blue-100 drop-shadow-md">Gerencie pagamentos e juros dos cartões</p>
                 </div>
+              </div>
+              
+              {/* ✅ NOVA SEÇÃO: Controles de Performance + Reatividade */}
+              <div className="flex items-center space-x-4">
+                <div className="text-right text-sm text-blue-200/80">
+                  <div>Última atualização:</div>
+                  <div className="font-medium">
+                    {new Date(lastUpdate).toLocaleTimeString('pt-BR', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      second: '2-digit'
+                    })}
+                  </div>
+                </div>
+                
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-white/20 text-white hover:bg-white/10 transition-all duration-200 bg-transparent"
+                  onClick={refreshDados}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  <span className="ml-2">Atualizar</span>
+                </Button>
               </div>
             </div>
           </div>

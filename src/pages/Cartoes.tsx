@@ -1,5 +1,7 @@
 "use client"
 
+import { atualizarStatusFaturas } from "./Faturas"
+
 import type React from "react"
 
 import { useState, useEffect } from "react"
@@ -251,7 +253,31 @@ const Cartoes = () => {
       }
 
       setModalOpen(false)
-      if (user) await carregarCartoes(user.id)
+      if (user) {
+        await carregarCartoes(user.id)
+        
+        // 🔄 ATUALIZAR STATUS DAS FATURAS após alteração do melhor_dia_compra
+        // ✅ Esta é a implementação que garante que o status das faturas seja atualizado
+        // sempre que o melhor dia de compra for alterado
+        try {
+          console.log('🔄 Atualizando status das faturas após alteração do cartão...')
+          // Buscar cartões atualizados do banco para garantir dados frescos
+          const { data: cartoesAtualizados, error: errorCartoes } = await supabase
+            .from("cartoes")
+            .select("*")
+            .eq("user_id", user.id)
+            
+          if (!errorCartoes && cartoesAtualizados) {
+            // Chamar a função que recalcula e atualiza os status no banco
+            await atualizarStatusFaturas(cartoesAtualizados, user.id)
+            console.log('✅ Status das faturas atualizado com sucesso!')
+            mostrarToast("success", "Cartão salvo e status das faturas atualizado!")
+          }
+        } catch (error) {
+          console.error('❌ Erro ao atualizar status das faturas:', error)
+          mostrarToast("error", "Cartão salvo, mas houve erro ao atualizar status das faturas")
+        }
+      }
     } catch (error) {
       console.error("Erro ao salvar cartão:", error)
       mostrarToast("error", `Erro: ${error instanceof Error ? error.message : "Erro desconhecido"}`)

@@ -130,6 +130,12 @@ const Index = () => {
   const [mesAtual] = useState(new Date().getMonth());
   const [anoAtual] = useState(new Date().getFullYear());
 
+  // Só adicionar isso:
+  const nomesMeses = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+
   // Carregar dados quando o usuário estiver disponível
   useEffect(() => {
     if (user) {
@@ -696,7 +702,7 @@ const Index = () => {
                   76%
                 </Badge>
               </div>
-              <h3 className="text-red-200 text-sm font-medium mb-1">Gastos Totais</h3>
+              <h3 className="text-red-200 text-sm font-medium mb-1">Gastos Totais de {nomesMeses[mesAtual]}</h3>
               <p className="text-2xl font-bold text-white">
                 R$ {totalGastosMes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
@@ -718,7 +724,7 @@ const Index = () => {
                 </Badge>
               </div>
               <h3 className={`text-sm font-medium mb-1 ${saldoDisponivel >= 0 ? "text-blue-200" : "text-red-200"}`}>
-                Saldo Disponível
+                Saldo Disponível {nomesMeses[mesAtual]}
               </h3>
               <p className={`text-2xl font-bold ${saldoDisponivel >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 R$ {saldoDisponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
