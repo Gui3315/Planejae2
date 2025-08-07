@@ -815,7 +815,7 @@ const Index = () => {
                             <p className="text-sm text-gray-400">
                               {conta.tipo === 'cartao' && 'Fatura de Cartão'}
                               {conta.tipo === 'carne' && conta.parcelaInfo}
-                              {conta.tipo === 'conta_fixa' && 'Conta Fixa'}
+                              {conta.tipo === 'conta_fixa' && 'Despesa Fixa'}
                             </p>
                           </div>
                         </div>
