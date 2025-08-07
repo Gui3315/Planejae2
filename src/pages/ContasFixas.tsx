@@ -619,7 +619,15 @@ const ContasFixas = () => {
                   )}
 
                   {/* Descrição */}
-                  {conta.descricao && !conta.descricao.includes("VARIA_MENSAL") && (
+                  {/* Exibir vencimento formatado se houver VENCIMENTO no campo descricao */}
+                  {conta.descricao && conta.descricao.match(/VENCIMENTO_(\d+)/) && (
+                    <div className="flex justify-between items-center pt-2 border-t border-white/10">
+                      <span className="text-sm text-orange-300">Vencimento:</span>
+                      <span className="text-sm text-orange-300">{conta.descricao.match(/VENCIMENTO_(\d+)/)[1]}º do mês</span>
+                    </div>
+                  )}
+                  {/* Exibir descrição normal se não for VENCIMENTO */}
+                  {conta.descricao && !conta.descricao.includes("VARIA_MENSAL") && !conta.descricao.match(/VENCIMENTO_(\d+)/) && (
                     <div className="pt-2 border-t border-white/10">
                       <p className="text-sm text-gray-300">{conta.descricao}</p>
                     </div>
