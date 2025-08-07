@@ -532,17 +532,8 @@ const Index = () => {
   const isLembreteProximo = (conta: Conta) => {
     const diaLembrete = getDiaLembrete(conta);
     if (!diaLembrete) return false;
-    
     const hoje = new Date().getDate();
-    const proximoLembrete = new Date(new Date().getFullYear(), new Date().getMonth(), diaLembrete);
-    
-    // Se já passou do dia do lembrete este mês, verificar próximo mês
-    if (hoje > diaLembrete) {
-      proximoLembrete.setMonth(proximoLembrete.getMonth() + 1);
-    }
-    
-    const diffDias = Math.ceil((proximoLembrete.getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-    return diffDias <= 3; // Mostrar lembrete 3 dias antes
+    return hoje === diaLembrete;
   };
 
   const getIconForConta = (titulo: string) => {
