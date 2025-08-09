@@ -1854,35 +1854,6 @@ const Faturas = () => {
                   <p className="text-xl text-blue-100 drop-shadow-md">Gerencie pagamentos e juros dos cartões</p>
                 </div>
               </div>
-              
-              {/* ✅ NOVA SEÇÃO: Controles de Performance + Reatividade */}
-              <div className="flex items-center space-x-4">
-                <div className="text-right text-sm text-blue-200/80">
-                  <div>Última atualização:</div>
-                  <div className="font-medium">
-                    {new Date(lastUpdate).toLocaleTimeString('pt-BR', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit'
-                    })}
-                  </div>
-                </div>
-                
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-white/20 text-white hover:bg-white/10 transition-all duration-200 bg-transparent"
-                  onClick={refreshDados}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <RefreshCw className="w-4 h-4" />
-                  )}
-                  <span className="ml-2">Atualizar</span>
-                </Button>
-              </div>
             </div>
           </div>
         </div>

@@ -50,6 +50,7 @@ import {
   Info,
 } from "lucide-react"
 import { getStatusFatura, getVencimentoFatura } from "../lib/faturas"
+import { getPeriodoFatura } from "../lib/faturas"
 
 interface Cartao {
   id: string
@@ -372,11 +373,18 @@ const Cartoes = () => {
 
     cartoesAtivos.forEach((cartao) => {
       const melhorDiaCompra = cartao.melhor_dia_compra || cartao.dia_vencimento
-      const dataVencimento = getVencimentoFatura(
-        melhorDiaCompra,
-        cartao.dia_vencimento,
-        new Date(anoAtual, mesAtual, diaAtual),
-      )
+      // Correção: calcular vencimento considerando regra:
+      // se dia_vencimento > dia de fechamento (fim do ciclo), usar mesmo mês do fechamento;
+      // caso contrário, mês seguinte.
+      const referencia = new Date(anoAtual, mesAtual, diaAtual)
+      const { fim } = getPeriodoFatura(melhorDiaCompra, referencia)
+      let mesVenc = fim.getMonth()
+      let anoVenc = fim.getFullYear()
+      if (cartao.dia_vencimento <= fim.getDate()) {
+        mesVenc += 1
+        if (mesVenc > 11) { mesVenc = 0; anoVenc += 1 }
+      }
+      const dataVencimento = new Date(anoVenc, mesVenc, cartao.dia_vencimento)
 
       if (!proximoVencimento || dataVencimento < proximoVencimento) {
         proximoVencimento = dataVencimento
@@ -385,13 +393,19 @@ const Cartoes = () => {
         faturaFechada =
           getStatusFatura(melhorDiaCompra, cartao.dia_vencimento, new Date(), dataVencimento, 0, 0) === "fechada"
 
+        // Correção: usar valor_parcela e filtrar parcelas do mês/ano do vencimento
         valorFatura = parcelas
           .filter((p) => p.status === "pendente")
           .filter((p) => {
             const conta = contasParceladas.find((c) => c.id === p.conta_id)
-            return conta && conta.cartao_id === cartao.id
+            if (!conta || conta.cartao_id !== cartao.id) return false
+            const dataParcela = new Date(p.data_vencimento)
+            return (
+              dataParcela.getMonth() === dataVencimento.getMonth() &&
+              dataParcela.getFullYear() === dataVencimento.getFullYear()
+            )
           })
-          .reduce((total, p) => total + (p.valor || 0), 0)
+          .reduce((total, p) => total + (p.valor_parcela || p.valor || 0), 0)
       }
     })
 
