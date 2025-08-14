@@ -558,19 +558,25 @@ const NovaContaParcelada: React.FC = () => {
         <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm"></div>
         <div className="relative px-6 py-6">
           <div className="max-w-2xl mx-auto">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-center space-x-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+              <div className="flex items-center gap-3 sm:gap-6">
                 <Button
                   variant="outline"
                   size="icon"
-                  className="border-white/20 text-white hover:bg-white/10 transition-all duration-200 bg-transparent"
+                  className="border-white/20 text-white bg-transparent transition-all duration-200
+                    w-12 h-12 min-w-[48px] min-h-[48px] sm:w-12 sm:h-12
+                    flex items-center justify-center
+                    hover:bg-white/10
+                    p-0"
                   onClick={() => navigate("/")}
                 >
-                  <ArrowLeft className="w-5 h-5" />
+                  <ArrowLeft className="w-7 h-7 sm:w-5 sm:h-5" />
                 </Button>
                 <div>
-                  <h1 className="text-4xl font-bold text-white tracking-tight drop-shadow-lg">Nova Despesa no Crédito</h1>
-                  <p className="text-xl text-blue-100 drop-shadow-md">Cadastre uma nova compra no crédito ou carnê</p>
+                  <h1 className="text-2xl sm:text-4xl font-bold text-white tracking-tight drop-shadow-lg leading-tight">
+                    Nova Despesa no Crédito
+                  </h1>
+                  <p className="text-base sm:text-xl text-blue-100 drop-shadow-md">Cadastre uma nova compra no crédito ou carnê</p>
                 </div>
               </div>
             </div>
@@ -599,9 +605,9 @@ const NovaContaParcelada: React.FC = () => {
 
           <CardContent className="space-y-6">
             {/* Switch de Tipo de Parcelamento */}
-            <div className="flex items-center justify-center space-x-6 p-4 bg-white/5 rounded-lg border border-white/10">
-              <div className="flex items-center space-x-3">
-                <CreditCard className="w-5 h-5 text-blue-400" />
+            <div className="flex flex-col gap-4 p-4 bg-white/5 rounded-lg border border-white/10 w-full">
+              <div className="flex flex-wrap items-center gap-3 justify-center w-full">
+                <CreditCard className="w-5 h-5 text-blue-400 shrink-0" />
                 <Label className="text-white font-medium">Cartão de Crédito</Label>
                 <Switch
                   checked={tipoParcelamento === "cartao"}
@@ -609,9 +615,9 @@ const NovaContaParcelada: React.FC = () => {
                   className="data-[state=checked]:bg-blue-500"
                 />
               </div>
-              <div className="w-px h-8 bg-white/20"></div>
-              <div className="flex items-center space-x-3">
-                <Receipt className="w-5 h-5 text-orange-400" />
+              <div className="w-full h-px bg-white/20 my-1" />
+              <div className="flex flex-wrap items-center gap-3 justify-center w-full">
+                <Receipt className="w-5 h-5 text-orange-400 shrink-0" />
                 <Label className="text-white font-medium">Carnê/Boleto</Label>
                 <Switch
                   checked={tipoParcelamento === "carne"}

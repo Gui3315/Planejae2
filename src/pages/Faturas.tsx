@@ -1586,7 +1586,7 @@ const Faturas = () => {
           }
         }
 
-        // Recarregar parcelas atualizadas
+        // Recarrega parcelas atualizadas
         const { data: parcelasAtualizadas, error: parcelasError } = await supabase
           .from("parcelas")
           .select("*")
@@ -1839,19 +1839,23 @@ const Faturas = () => {
         <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm"></div>
         <div className="relative px-6 py-8">
           <div className="max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+              <div className="flex items-center gap-3 sm:gap-6">
                 <Button
                   variant="outline"
                   size="icon"
-                  className="border-white/20 text-white hover:bg-white/10 transition-all duration-200 bg-transparent"
+                  className="border-white/20 text-white bg-transparent transition-all duration-200
+                    w-12 h-12 min-w-[48px] min-h-[48px] sm:w-12 sm:h-12
+                    flex items-center justify-center
+                    hover:bg-white/10
+                    p-0"
                   onClick={() => navigate("/")}
                 >
-                  <ArrowLeft className="w-5 h-5" />
+                  <ArrowLeft className="w-7 h-7 sm:w-5 sm:h-5" />
                 </Button>
                 <div>
-                  <h1 className="text-4xl font-bold text-white tracking-tight drop-shadow-lg">Controle de Faturas</h1>
-                  <p className="text-xl text-blue-100 drop-shadow-md">Gerencie pagamentos e juros dos cartões</p>
+                  <h1 className="text-2xl sm:text-4xl font-bold text-white tracking-tight leading-tight">Controle de Faturas</h1>
+                  <p className="text-base sm:text-lg text-blue-100">Gerencie pagamentos e juros dos cartões</p>
                 </div>
               </div>
             </div>

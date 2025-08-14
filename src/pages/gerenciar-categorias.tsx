@@ -312,27 +312,30 @@ const GerenciarCategorias = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10">
-          <div className="flex items-center gap-6">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-10 w-full">
+          <div className="flex items-center gap-3 w-full min-w-0">
             <Button
               variant="outline"
               onClick={() => navigate("/")}
-              className="bg-white/10 border-slate-300/30 text-white hover:bg-white/20 hover:border-white/40 backdrop-blur-sm transition-all duration-300"
+              className="w-12 h-12 min-w-[3rem] min-h-[3rem] p-0 flex items-center justify-center bg-white/10 border-slate-300/30 text-white hover:bg-white/20 hover:border-white/40 backdrop-blur-sm transition-all duration-300"
+              aria-label="Voltar"
             >
-              <ArrowLeft className="w-4 h-4 mr-2" />
+              <ArrowLeft className="w-6 h-6" />
             </Button>
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-gradient-to-r from-green-500 to-blue-500 rounded-xl">
-                  <BarChart3 className="w-6 h-6 text-white" />
-                </div>
-                <h1 className="text-4xl lg:text-5xl font-bold text-white drop-shadow-lg">Relatório de Categorias</h1>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="p-2 bg-gradient-to-r from-green-500 to-blue-500 rounded-xl flex items-center justify-center">
+                <BarChart3 className="w-7 h-7 text-white" />
               </div>
-              <p className="text-xl text-slate-300 drop-shadow-md flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-yellow-400" />
-                Análise detalhada dos seus gastos por categoria
-              </p>
+              <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white drop-shadow-lg whitespace-nowrap truncate">
+                Relatório de Categorias
+              </h1>
             </div>
+          </div>
+          <div className="w-full sm:w-auto mt-2 sm:mt-0">
+            <p className="text-base sm:text-lg md:text-xl text-slate-300 drop-shadow-md flex items-center gap-2 whitespace-nowrap">
+              <Sparkles className="w-5 h-5 text-yellow-400" />
+              Análise detalhada dos seus gastos por categoria
+            </p>
           </div>
         </div>
 

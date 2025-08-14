@@ -381,29 +381,33 @@ const ContasFixas = () => {
         <div className="absolute inset-0 bg-gradient-to-r from-blue-600/20 to-purple-600/20 backdrop-blur-sm"></div>
         <div className="relative px-6 py-8">
           <div className="max-w-7xl mx-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center space-x-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+              <div className="flex items-center gap-3 sm:gap-6">
                 <Button
                   variant="outline"
                   size="icon"
-                  className="border-white/20 text-white hover:bg-white/10 transition-all duration-200 bg-transparent"
+                  className="border-white/20 text-white bg-transparent transition-all duration-200
+                    w-12 h-12 min-w-[48px] min-h-[48px] sm:w-12 sm:h-12
+                    flex items-center justify-center
+                    hover:bg-white/10
+                    p-0"
                   onClick={() => navigate("/")}
                 >
-                  <ArrowLeft className="w-5 h-5" />
+                  <ArrowLeft className="w-7 h-7 sm:w-5 sm:h-5" />
                 </Button>
                 <div>
-                  <h1 className="text-4xl font-bold text-white tracking-tight drop-shadow-lg">
+                  <h1 className="text-2xl sm:text-4xl font-bold text-white tracking-tight drop-shadow-lg leading-tight">
                     Gerenciar Despesas Fixas
                   </h1>
-                  <p className="text-xl text-blue-100 drop-shadow-md">Gerencie suas despesas recorrentes com cartões de crédito e carnês</p>
+                  <p className="text-base sm:text-xl text-blue-100 drop-shadow-md">Gerencie suas despesas recorrentes com cartões de crédito e carnês</p>
                 </div>
               </div>
               <Button
                 onClick={() => abrirModal()}
-                className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105"
+                className="w-full sm:w-auto px-4 py-3 sm:px-6 sm:py-3 text-base sm:text-lg font-semibold bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg hover:shadow-xl transition-all duration-200 hover:scale-105 whitespace-nowrap"
                 size="lg"
               >
-                <Plus className="w-5 h-5 mr-2" />
+                <Plus className="w-6 h-6 sm:w-5 sm:h-5 mr-2" />
                 Nova Despesa Fixa
               </Button>
             </div>

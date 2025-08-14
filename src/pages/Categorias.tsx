@@ -237,36 +237,37 @@ const Categorias = () => {
         )}
 
         {/* Header */}
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6 mb-10">
-          <div className="flex items-center gap-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-10">
+          <div className="flex items-center gap-3 sm:gap-6">
             <Button
               variant="outline"
+              size="icon"
               onClick={() => navigate("/")}
-              className="bg-white/10 border-slate-300/30 text-white hover:bg-white/20 hover:border-white/40 backdrop-blur-sm transition-all duration-300"
+              className="bg-white/10 border-slate-300/30 text-white hover:bg-white/20 hover:border-white/40 backdrop-blur-sm transition-all duration-300
+                w-12 h-12 min-w-[48px] min-h-[48px] sm:w-12 sm:h-12 flex items-center justify-center p-0"
             >
-              <ArrowLeft className="w-4 h-4 mr-2" />
+              <ArrowLeft className="w-7 h-7 sm:w-5 sm:h-5" />
             </Button>
             <div>
               <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl">
                   <Tag className="w-6 h-6 text-white" />
                 </div>
-                <h1 className="text-4xl lg:text-5xl font-bold text-white drop-shadow-lg">Categorias</h1>
+                <h1 className="text-2xl sm:text-4xl lg:text-5xl font-bold text-white drop-shadow-lg leading-tight">Categorias</h1>
               </div>
-              <p className="text-xl text-slate-300 drop-shadow-md flex items-center gap-2">
+              <p className="text-base sm:text-xl text-slate-300 drop-shadow-md flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-yellow-400" />
                 Organize seus gastos por categorias
               </p>
             </div>
           </div>
-
           <Dialog open={modalOpen} onOpenChange={setModalOpen}>
             <DialogTrigger asChild>
               <Button
-                className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300"
+                className="w-full sm:w-auto px-4 py-3 sm:px-6 sm:py-3 text-base sm:text-lg font-semibold bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white shadow-xl hover:shadow-2xl transform hover:scale-105 transition-all duration-300 whitespace-nowrap"
                 onClick={() => abrirModal()}
               >
-                <Plus className="w-5 h-5 mr-2" />
+                <Plus className="w-6 h-6 sm:w-5 sm:h-5 mr-2" />
                 Nova Categoria
               </Button>
             </DialogTrigger>
