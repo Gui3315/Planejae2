@@ -27,6 +27,7 @@ import {
   Eye,
   Settings,
   LogOut,
+  ChevronLeft,
   Zap,
   Droplets,
   Flame,
@@ -130,6 +131,34 @@ const Index = () => {
   // Estado do mês atual
   const [mesAtual] = useState(new Date().getMonth());
   const [anoAtual] = useState(new Date().getFullYear());
+
+  // ADICIONAR ESTAS LINHAS AQUI:
+  const [mesSelecionado, setMesSelecionado] = useState(mesAtual);
+  const [anoSelecionado, setAnoSelecionado] = useState(anoAtual);
+
+  // ADICIONAR ESSAS FUNÇÕES AQUI:
+  const navegarMesAnterior = () => {
+    if (mesSelecionado === 0) {
+      setMesSelecionado(11);
+      setAnoSelecionado(anoSelecionado - 1);
+    } else {
+      setMesSelecionado(mesSelecionado - 1);
+    }
+  };
+
+  const navegarProximoMes = () => {
+    if (mesSelecionado === 11) {
+      setMesSelecionado(0);
+      setAnoSelecionado(anoSelecionado + 1);
+    } else {
+      setMesSelecionado(mesSelecionado + 1);
+    }
+  };
+
+  const voltarMesAtual = () => {
+    setMesSelecionado(mesAtual);
+    setAnoSelecionado(anoAtual);
+  };
 
   // Só adicionar isso:
   const nomesMeses = [
@@ -358,14 +387,13 @@ const Index = () => {
     return categoria?.ignorarsaldo === true;
   };
 
-  //  CORRIGIDO: Calcular faturas TOTAIS (não restantes) ignorando categorias com ignorarsaldo = true
+  // 1. TODAS as Faturas do mês selecionado
   const totalFaturasDoMes = faturasEmAberto.filter(fatura => {
-  // Filtrar faturas que vencem no mês atual
-  const dataVencimento = new Date(fatura.data_vencimento);
-  const mesVencimento = dataVencimento.getMonth();
-  const anoVencimento = dataVencimento.getFullYear();
+    const dataVencimento = new Date(fatura.data_vencimento);
+    const mesVencimento = dataVencimento.getMonth();
+    const anoVencimento = dataVencimento.getFullYear();
 
-  return mesVencimento === mesAtual && anoVencimento === anoAtual;
+  return mesVencimento === mesSelecionado && anoVencimento === anoSelecionado;
 
 }).reduce((total, fatura) => {
   // Somar valor total da fatura (ignorando categorias será feito depois se necessário)
@@ -383,12 +411,11 @@ const Index = () => {
 
   // 3. TODAS as Parcelas de carnê do mês (ignorar apenas categorias marcadas, não status)
     const totalParcelasCarne = parcelas.filter(parcela => {
-    // Filtrar parcelas do mês atual
-    const dataVencimento = new Date(parcela.data_vencimento);
-    const mesVencimento = dataVencimento.getMonth();
-    const anoVencimento = dataVencimento.getFullYear();
-    
-    if (mesVencimento !== mesAtual || anoVencimento !== anoAtual) {
+      const dataVencimento = new Date(parcela.data_vencimento);
+      const mesVencimento = dataVencimento.getMonth();
+      const anoVencimento = dataVencimento.getFullYear();
+      
+      if (mesVencimento !== mesSelecionado || anoVencimento !== anoSelecionado) {
       return false;
     }
     
@@ -672,9 +699,30 @@ const Index = () => {
             </CardContent>
           </Card>
 
-          {/* Gastos Totais */}
-          <Card className="bg-white/5 border-white/10 backdrop-blur-sm hover:shadow-xl hover:scale-110 transition-all duration-300 transition-all duration-300">
-          <CardContent className="p-6">
+          {/* Gastos Totais com Navegação */}
+          <Card className="bg-white/5 border-white/10 backdrop-blur-sm hover:shadow-xl hover:scale-110 transition-all duration-300 relative">
+            <CardContent className="p-6">
+              {/* Setas de Navegação */}
+              <div className="absolute inset-0 flex items-center justify-between pointer-events-none">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={navegarMesAnterior}
+                  className="text-white hover:bg-white/10 p-2 pointer-events-auto ml-2"
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={navegarProximoMes}
+                  className="text-white hover:bg-white/10 p-2 pointer-events-auto mr-2"
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </Button>
+              </div>
+
+              {/* Conteúdo do Card */}
               <div className="flex items-center justify-between mb-4">
                 <div className="w-12 h-12 bg-red-500/20 rounded-full flex items-center justify-center">
                   <TrendingDown className="w-6 h-6 text-red-400" />
@@ -683,10 +731,12 @@ const Index = () => {
                   {percentualGasto.toFixed(0)}%
                 </Badge>
               </div>
-              <h3 className="text-red-200 text-sm font-medium mb-1">Gastos Totais de {nomesMeses[mesAtual]}</h3>
-              <p className="text-2xl font-bold text-white">
-                R$ {totalGastosMes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </p>
+              <div className="px-8">
+                <h3 className="text-red-200 text-sm font-medium mb-1 whitespace-nowrap overflow-hidden text-ellipsis">Gastos Totais {nomesMeses[mesSelecionado]} {anoSelecionado.toString().slice(-2)}</h3>
+                <p className="text-2xl font-bold text-white">
+                  R$ {totalGastosMes.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -705,7 +755,7 @@ const Index = () => {
                 </Badge>
               </div>
               <h3 className={`text-sm font-medium mb-1 ${saldoDisponivel >= 0 ? "text-blue-200" : "text-red-200"}`}>
-                Saldo Disponível {nomesMeses[mesAtual]}
+                Saldo Disponível {nomesMeses[mesSelecionado]} {anoSelecionado.toString().slice(-2)}
               </h3>
               <p className={`text-2xl font-bold ${saldoDisponivel >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 R$ {saldoDisponivel.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
