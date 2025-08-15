@@ -92,46 +92,55 @@ export type Database = {
       }
       contas: {
         Row: {
-          cartao_id: string | null
-          categoria_id: string | null
+          ano_pagamento: number | null
+          cartao_id: string
+          categoria_id: string
           created_at: string
           data_primeira_parcela: string
-          descricao: string | null
+          descricao: string
           id: string
-          recorrente_ate: string | null
+          mes_pagamento: number | null
+          paga_mes_atual: boolean
+          recorrente_ate: string
           tipo_conta: string
           titulo: string
-          total_parcelas: number | null
+          total_parcelas: number
           updated_at: string
           user_id: string
           valor_total: number
         }
         Insert: {
-          cartao_id?: string | null
-          categoria_id?: string | null
-          created_at?: string
-          data_primeira_parcela: string
-          descricao?: string | null
-          id?: string
-          recorrente_ate?: string | null
-          tipo_conta: string
-          titulo: string
-          total_parcelas?: number | null
-          updated_at?: string
-          user_id: string
-          valor_total: number
-        }
-        Update: {
-          cartao_id?: string | null
-          categoria_id?: string | null
+          ano_pagamento?: number | null
+          cartao_id?: string
+          categoria_id?: string
           created_at?: string
           data_primeira_parcela?: string
-          descricao?: string | null
+          descricao?: string
           id?: string
-          recorrente_ate?: string | null
+          mes_pagamento?: number | null
+          paga_mes_atual?: boolean
+          recorrente_ate?: string
           tipo_conta?: string
           titulo?: string
-          total_parcelas?: number | null
+          total_parcelas?: number
+          updated_at?: string
+          user_id?: string
+          valor_total?: number
+        }
+        Update: {
+          ano_pagamento?: number | null
+          cartao_id?: string
+          categoria_id?: string
+          created_at?: string
+          data_primeira_parcela?: string
+          descricao?: string
+          id?: string
+          mes_pagamento?: number | null
+          paga_mes_atual?: boolean
+          recorrente_ate?: string
+          tipo_conta?: string
+          titulo?: string
+          total_parcelas?: number
           updated_at?: string
           user_id?: string
           valor_total?: number

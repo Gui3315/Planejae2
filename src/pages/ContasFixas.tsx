@@ -65,6 +65,9 @@ interface ContaFixa {
   created_at: string
   updated_at: string
   user_id: string
+  paga_mes_atual: boolean
+  mes_pagamento: number | null
+  ano_pagamento: number | null
 }
 
 interface Categoria {
@@ -122,7 +125,14 @@ const ContasFixas = () => {
       const contasFixas = data?.filter((conta) => conta.tipo_conta === "recorrente") || []
       const carnes = data?.filter((conta) => conta.tipo_conta === "parcelada" && !conta.cartao_id) || []
 
-      setContasFixas([...contasFixas, ...carnes])
+      const contasComPropriedades = [...contasFixas, ...carnes].map(conta => ({
+        ...conta,
+        paga_mes_atual: conta.paga_mes_atual ?? false,
+        mes_pagamento: conta.mes_pagamento ?? null,
+        ano_pagamento: conta.ano_pagamento ?? null
+      }))
+
+      setContasFixas(contasComPropriedades)
 
       if (carnes.length > 0) {
         const contaIds = carnes.map((c) => c.id)
@@ -231,7 +241,17 @@ const ContasFixas = () => {
   const isLembreteProximo = (conta: ContaFixa) => {
     const diaLembrete = getDiaLembrete(conta)
     if (!diaLembrete) return false
-    const hoje = new Date().getDate()
+    
+    // Verifica se já foi paga no mês atual
+    const now = new Date()
+    const mesAtual = now.getMonth() + 1
+    const anoAtual = now.getFullYear()
+    
+    if (conta.paga_mes_atual && conta.mes_pagamento === mesAtual && conta.ano_pagamento === anoAtual) {
+      return false // Já foi paga este mês
+    }
+    
+    const hoje = now.getDate()
     return hoje === diaLembrete
   }
 
@@ -320,6 +340,84 @@ const ContasFixas = () => {
     setConfirmacaoExclusao(null)
   }
 
+  const confirmarPagamento = async (contaId: string) => {
+  try {
+    const now = new Date()
+    const mesAtual = now.getMonth() + 1
+    const anoAtual = now.getFullYear()
+    
+    const { error } = await supabase
+      .from("contas")
+      .update({
+        paga_mes_atual: true,
+        mes_pagamento: mesAtual,
+        ano_pagamento: anoAtual
+      })
+      .eq("id", contaId)
+
+    if (error) throw error
+    
+    mostrarToast("success", "Pagamento confirmado com sucesso!")
+    if (user) await carregarContasFixas(user.id)
+  } catch (error) {
+    console.error("Erro ao confirmar pagamento:", error)
+    mostrarToast("error", "Não foi possível confirmar o pagamento")
+  }
+}
+
+  const confirmarPagamentoCarne = async (contaId: string) => {
+  try {
+    const now = new Date()
+    const mesAtual = now.getMonth()
+    const anoAtual = now.getFullYear()
+    
+    // Busca a parcela do mês atual que está pendente
+    const { data: parcela, error: errorBusca } = await supabase
+      .from("parcelas")
+      .select("*")
+      .eq("conta_id", contaId)
+      .eq("status", "pendente")
+      .gte("data_vencimento", `${anoAtual}-${String(mesAtual + 1).padStart(2, '0')}-01`)
+      .lt("data_vencimento", `${anoAtual}-${String(mesAtual + 2).padStart(2, '0')}-01`)
+      .single()
+    
+    if (errorBusca) {
+      console.error("Erro ao buscar parcela:", errorBusca)
+      mostrarToast("error", "Nenhuma parcela pendente encontrada para este mês")
+      return
+    }
+    
+    // Atualiza o status da parcela para 'paga'
+    const { error } = await supabase
+      .from("parcelas")
+      .update({ status: "paga" })
+      .eq("id", parcela.id)
+
+    if (error) throw error
+    
+    mostrarToast("success", "Pagamento da parcela confirmado com sucesso!")
+    if (user) await carregarContasFixas(user.id)
+  } catch (error) {
+    console.error("Erro ao confirmar pagamento da parcela:", error)
+    mostrarToast("error", "Não foi possível confirmar o pagamento")
+  }
+}
+
+const isParcelaDoMesPaga = (contaId: string) => {
+  const now = new Date()
+  const mesAtual = now.getMonth()
+  const anoAtual = now.getFullYear()
+  
+  // Verifica se existe uma parcela paga no mês atual
+  const parcelaPaga = parcelas.find(p => {
+    if (p.conta_id !== contaId || p.status !== "paga") return false
+    const dataVencimento = new Date(p.data_vencimento)
+    return dataVencimento.getMonth() === mesAtual && dataVencimento.getFullYear() === anoAtual
+  })
+  
+  return !!parcelaPaga
+}
+
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
       style: "currency",
@@ -358,6 +456,22 @@ const ContasFixas = () => {
   }, 0)
 
   const contasVariaveis = contasFixas.filter(isContaVariavel)
+
+  const now = new Date()
+  const mesAtual = now.getMonth()
+  const anoAtual = now.getFullYear()
+
+  const contasVariaveisQuePrecisamAtualizar = contasVariaveis.filter(conta => {
+  const mesAtual = now.getMonth() + 1
+  const anoAtual = now.getFullYear()
+  
+  // Se já foi paga este mês, não precisa atualizar
+  if (conta.paga_mes_atual && conta.mes_pagamento === mesAtual && conta.ano_pagamento === anoAtual) {
+    return false
+  }
+  
+  return true // Precisa atualizar/pagar
+})
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900">
@@ -464,7 +578,7 @@ const ContasFixas = () => {
                 </Badge>
               </div>
               <h3 className="text-orange-200 text-sm font-medium mb-1">Despesas Variáveis</h3>
-              <p className="text-2xl font-bold text-white">{contasVariaveis.length}</p>
+              <p className="text-2xl font-bold text-white">{contasVariaveisQuePrecisamAtualizar.length}</p>
               <p className="text-orange-300 text-xs mt-1">Precisam atualização</p>
             </CardContent>
           </Card>
@@ -539,11 +653,6 @@ const ContasFixas = () => {
                                 style={{ backgroundColor: getCategoriaConta(conta.categoria_id)!.cor }}
                               ></div>
                               {getCategoriaConta(conta.categoria_id)!.nome}
-                            </Badge>
-                          )}
-                          {isLembreteProximo(conta) && (
-                            <Badge variant="secondary" className="w-15 h-6 bg-red-900/20 text-red-300 border-red-500/30 text-sm">
-                              Lembrete!
                             </Badge>
                           )}
                         </div>
@@ -625,6 +734,58 @@ const ContasFixas = () => {
                   {conta.descricao && !conta.descricao.includes("VARIA_MENSAL") && !conta.descricao.match(/VENCIMENTO_(\d+)/) && (
                     <div className="pt-2 border-t border-white/10">
                       <p className="text-sm text-gray-300">{conta.descricao}</p>
+                    </div>
+                  )}
+                  {/* Botão de Pagamento para Despesas Fixas */}
+                  {conta.tipo_conta === "recorrente" && (
+                    <div className="pt-3 border-t border-white/10">
+                      {(() => {
+                        const now = new Date()
+                        const mesAtual = now.getMonth() + 1
+                        const anoAtual = now.getFullYear()
+                        const jaPago = conta.paga_mes_atual && conta.mes_pagamento === mesAtual && conta.ano_pagamento === anoAtual
+                        
+                        return jaPago ? (
+                          <Button
+                            disabled
+                            className="w-full bg-gray-500/20 text-gray-400 font-semibold py-2 px-4 rounded-lg cursor-not-allowed"
+                            size="sm"
+                          >
+                            ✓ Pago este mês
+                          </Button>
+                        ) : (
+                          <Button
+                            onClick={() => confirmarPagamento(conta.id)}
+                            className="w-full bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200 hover:scale-105"
+                            size="sm"
+                          >
+                            ✓ Confirmar Pagamento
+                          </Button>
+                        )
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Botão de Pagamento para Carnês */}
+                  {conta.tipo_conta === "parcelada" && (
+                    <div className="pt-3 border-t border-white/10">
+                      {isParcelaDoMesPaga(conta.id) ? (
+                        <Button
+                          disabled
+                          className="w-full bg-gray-500/20 text-gray-400 font-semibold py-2 px-4 rounded-lg cursor-not-allowed"
+                          size="sm"
+                        >
+                          ✓ Parcela paga este mês
+                        </Button>
+                      ) : (
+                        <Button
+                          onClick={() => confirmarPagamentoCarne(conta.id)}
+                          className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition-all duration-200 hover:scale-105"
+                          size="sm"
+                        >
+                          ✓ Confirmar Parcela
+                        </Button>
+                      )}
                     </div>
                   )}
                 </CardContent>

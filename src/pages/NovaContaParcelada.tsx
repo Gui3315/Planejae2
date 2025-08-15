@@ -92,6 +92,78 @@ const NovaContaParcelada: React.FC = () => {
     setTimeout(() => setToast(null), 3000)
   }
 
+  async function gerarFaturasParaCartaoEspecifico(userId: string, cartaoId: string, parcelasArray: any[]) {
+    try {
+      const { data: cartao } = await supabase
+        .from("cartoes")
+        .select("*")
+        .eq("id", cartaoId)
+        .eq("user_id", userId)
+        .single()
+
+      if (!cartao) return
+
+      const mesesComParcelas = new Set<string>()
+      parcelasArray.forEach(parcela => {
+        const dataVencimento = new Date(parcela.data_vencimento)
+        const mesFatura = dataVencimento.getMonth() + 1
+        const anoFatura = dataVencimento.getFullYear()
+        const chaveMes = `${anoFatura}-${mesFatura.toString().padStart(2, "0")}`
+        mesesComParcelas.add(chaveMes)
+      })
+
+      for (const chaveMes of mesesComParcelas) {
+        const [anoFatura, mesFaturaStr] = chaveMes.split("-")
+        const mesFatura = parseInt(mesFaturaStr)
+        const anoFaturaNum = parseInt(anoFatura)
+
+        const { data: faturaExistente } = await supabase
+          .from("faturas_cartao")
+          .select("id, valor_total")
+          .eq("cartao_id", cartaoId)
+          .eq("mes_referencia", `${anoFaturaNum}-${mesFatura.toString().padStart(2, "0")}-01`)
+          .maybeSingle()
+
+        const parcelasDoMes = parcelasArray.filter(p => {
+          const dataParcela = new Date(p.data_vencimento)
+          return dataParcela.getMonth() + 1 === mesFatura && dataParcela.getFullYear() === anoFaturaNum
+        })
+
+        const valorNovasParcelas = parcelasDoMes.reduce((total, p) => total + p.valor_parcela, 0)
+
+        if (valorNovasParcelas > 0) {
+          if (!faturaExistente) {
+            const dataVencimento = new Date(anoFaturaNum, mesFatura - 1, cartao.dia_vencimento || 1)
+            const hoje = new Date()
+            const statusFatura = determinarStatusFatura(mesFatura, anoFaturaNum, cartao, hoje, 1)
+
+            await supabase.from("faturas_cartao").insert({
+              cartao_id: cartaoId,
+              mes_referencia: `${anoFaturaNum}-${mesFatura.toString().padStart(2, "0")}-01`,
+              valor_total: valorNovasParcelas,
+              valor_pago: 0,
+              valor_rotativo: 0,
+              data_vencimento: dataVencimento.toISOString().slice(0, 10),
+              status: statusFatura,
+              user_id: userId,
+            })
+          } else {
+            await supabase
+              .from("faturas_cartao")
+              .update({
+                valor_total: faturaExistente.valor_total + valorNovasParcelas,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("id", faturaExistente.id)
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Erro ao gerar faturas para cartão específico:", error)
+      throw error
+    }
+  }
+
   async function gerarFaturasParaTodosCartoes(userId: string, parcelaInicialNovaConta = 1) {
     try {
       const { data: cartoes } = await supabase.from("cartoes").select("*").eq("user_id", userId).eq("ativo", true)
@@ -467,7 +539,9 @@ const NovaContaParcelada: React.FC = () => {
         })
       }
 
-      const { error: parcelasError } = await supabase.from("parcelas").insert(parcelas)
+      const { error: parcelasError } = await supabase
+        .from("parcelas")
+        .insert(parcelas)
       if (parcelasError) {
         setErro("Erro ao criar parcelas: " + parcelasError.message)
         setLoading(false)
@@ -475,19 +549,19 @@ const NovaContaParcelada: React.FC = () => {
       }
 
       try {
-        await gerarFaturasParaTodosCartoes(user.id, parcelaInicial)
+        if (tipoParcelamento === "cartao" && cartaoId) {
+          await gerarFaturasParaCartaoEspecifico(user.id, cartaoId, parcelas)
+        }
       } catch (error) {
         console.error("Erro ao gerar faturas automaticamente:", error)
       }
 
-      await recarregarDados()
-
       if (opcoes && opcoes.redirecionar === false) {
         limparFormulario()
-        mostrarToast("success", "Conta parcelada criada com sucesso!")
+        mostrarToast("success", "Compra adicionada!")
       } else {
-        mostrarToast("success", "Conta parcelada criada com sucesso!")
-        setTimeout(() => navigate("/"), 1000)
+        mostrarToast("success", "Compra adicionada!")
+        navigate("/")
       }
     } catch (err: any) {
       setErro("Erro inesperado: " + err.message)

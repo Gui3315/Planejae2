@@ -63,6 +63,7 @@ interface Conta {
   descricao: string | null;
   cartao_id: string | null; // ID do cartão (se for conta parcelada)
   categoria_id?: string | null; // ID da categoria
+  paga_mes_atual?: boolean; // Para contas fixas - indica se foi paga este mês
 }
 
 interface Parcela {
@@ -279,7 +280,7 @@ const Index = () => {
         .from('faturas_cartao' as any)
         .select('*')
         .eq('user_id', userId)
-        .or('status.eq.aberta,status.eq.fechada');
+        .or('status.eq.aberta,status.eq.fechada,status.eq.paga');
       
       if (faturasData) {
         setFaturasEmAberto(faturasData as unknown as FaturaCartao[]);
@@ -357,63 +358,53 @@ const Index = () => {
     return categoria?.ignorarsaldo === true;
   };
 
-  //  CORRIGIDO: Calcular faturas ignorando categorias com ignorarsaldo = true
-  const totalFaturasRestantes = faturasEmAberto.reduce((total, fatura) => {
-    // Para cada fatura, vamos calcular apenas o valor das compras que não devem ser ignoradas
-    let valorFaturaValido = 0;
+  //  CORRIGIDO: Calcular faturas TOTAIS (não restantes) ignorando categorias com ignorarsaldo = true
+  const totalFaturasDoMes = faturasEmAberto.filter(fatura => {
+  // Filtrar faturas que vencem no mês atual
+  const dataVencimento = new Date(fatura.data_vencimento);
+  const mesVencimento = dataVencimento.getMonth();
+  const anoVencimento = dataVencimento.getFullYear();
+
+  return mesVencimento === mesAtual && anoVencimento === anoAtual;
+
+}).reduce((total, fatura) => {
+  // Somar valor total da fatura (ignorando categorias será feito depois se necessário)
+  return total + fatura.valor_total;
+}, 0);
+
+  // 2. TODAS as Contas fixas do mês (ignorar apenas categorias marcadas, não status de pagamento)
+  const totalContasFixas = contasFixas.reduce((total, conta) => {
+    const ignorada = isIgnoradaNoSaldo(conta.categoria_id);
+    if (!ignorada) {
+      return total + conta.valor_total;
+    }
+    return total;
+  }, 0);
+
+  // 3. TODAS as Parcelas de carnê do mês (ignorar apenas categorias marcadas, não status)
+    const totalParcelasCarne = parcelas.filter(parcela => {
+    // Filtrar parcelas do mês atual
+    const dataVencimento = new Date(parcela.data_vencimento);
+    const mesVencimento = dataVencimento.getMonth();
+    const anoVencimento = dataVencimento.getFullYear();
     
-    // 1. Verificar compras parceladas deste cartão
-    const contasParceladasDoCartao = contasParceladas.filter(conta => conta.cartao_id === fatura.cartao_id);
-    contasParceladasDoCartao.forEach(conta => {
-      const ignorada = isIgnoradaNoSaldo(conta.categoria_id);
-      if (!ignorada) {
-        // Somar o valor proporcional desta conta na fatura
-        const parcelasDaConta = parcelas.filter(p => p.conta_id === conta.id);
-        const valorTotalParcelas = parcelasDaConta.reduce((sum, p) => sum + p.valor_parcela, 0);
-        valorFaturaValido += valorTotalParcelas;
-      }
-    });
-    
-    // 2. Verificar compras recorrentes deste cartão
-    const comprasRecorrentesDoCartao = comprasRecorrentes.filter(compra => compra.cartao_id === fatura.cartao_id);
-    comprasRecorrentesDoCartao.forEach(compra => {
-      const ignorada = isIgnoradaNoSaldo(compra.categoria_id);
-      if (!ignorada) {
-        valorFaturaValido += compra.valor;
-      }
-    });
-    
-    // Se não há valor válido nesta fatura, pular
-    if (valorFaturaValido === 0) {
-      return total;
+    if (mesVencimento !== mesAtual || anoVencimento !== anoAtual) {
+      return false;
     }
     
-    // Calcular a proporção que foi paga e aplicar ao valor válido
-    const proporcaoPaga = fatura.valor_total > 0 ? fatura.valor_pago / fatura.valor_total : 0;
-    const valorRestanteValido = valorFaturaValido * (1 - proporcaoPaga);
-    
-    return total + valorRestanteValido;
-  }, 0);
-  
-  // 2. Contas fixas (ignorar categorias marcadas)
-  const contasFixasFiltradas = contasFixas.filter(conta => {
-    const ignorada = isIgnoradaNoSaldo(conta.categoria_id);
-    return !ignorada;
-  });
-
-  const totalContasFixas = contasFixasFiltradas.reduce((total, conta) => total + conta.valor_total, 0);
-
-  // 3. Parcelas de carnê (ignorar categorias marcadas)
-  const parcelasCarneFilradas = parcelasCarne.filter(parcela => {
+    // Verificar se é carnê (conta sem cartao_id)
     const conta = contas.find(c => c.id === parcela.conta_id);
+    if (!conta || conta.cartao_id) {
+      return false;
+    }
+    
+    // Ignorar categorias marcadas
     const ignorada = conta && isIgnoradaNoSaldo(conta.categoria_id);
-    return conta && !ignorada;
-  });
-
-  const totalParcelasCarne = parcelasCarneFilradas.reduce((total, parcela) => total + parcela.valor_parcela, 0);
+    return !ignorada;
+  }).reduce((total, parcela) => total + parcela.valor_parcela, 0);
 
   // 4. Total geral de gastos
-  const totalGastosMes = totalFaturasRestantes + totalContasFixas + totalParcelasCarne;
+  const totalGastosMes = totalFaturasDoMes + totalContasFixas + totalParcelasCarne;
 
   const saldoDisponivel = salarioMensal - totalGastosMes;
   const percentualGasto = salarioMensal > 0 ? (totalGastosMes / salarioMensal) * 100 : 0;
@@ -447,9 +438,8 @@ const Index = () => {
   const contasVencendo: ContaVencendo[] = [];
   
   // 1. Faturas de cartão vencendo (abertas E fechadas)
-  faturasEmAberto.forEach(fatura => {
+  faturasEmAberto.filter(fatura => fatura.status !== 'paga').forEach(fatura => {
     const dataVencimento = new Date(fatura.data_vencimento);
-    //  CORREÇÃO: Zerar horário para comparar apenas datas
     dataVencimento.setHours(0, 0, 0, 0);
     
     if (dataVencimento >= hojeBrasil && dataVencimento <= proximos7Dias) {
@@ -486,7 +476,7 @@ const Index = () => {
   });
   
   // 3. Contas fixas vencendo (baseado no dia do mês)
-  contasFixas.forEach(conta => {
+  contasFixas.filter(conta => !conta.paga_mes_atual).forEach(conta => {
     const diaVencimento = getDiaVencimento(conta);
     if (diaVencimento) {
       const dataVencimento = new Date(hojeBrasil.getFullYear(), hojeBrasil.getMonth(), diaVencimento);
@@ -690,7 +680,7 @@ const Index = () => {
                   <TrendingDown className="w-6 h-6 text-red-400" />
                 </div>
                 <Badge variant="secondary" className="bg-red-500/20 text-red-300 border-red-500/30">
-                  76%
+                  {percentualGasto.toFixed(0)}%
                 </Badge>
               </div>
               <h3 className="text-red-200 text-sm font-medium mb-1">Gastos Totais de {nomesMeses[mesAtual]}</h3>
