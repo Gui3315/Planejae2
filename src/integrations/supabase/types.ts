@@ -216,6 +216,73 @@ export type Database = {
           },
         ]
       }
+      compras_recorrentes_cartao: {
+      Row: {
+        id: string
+        user_id: string
+        cartao_id: string
+        titulo: string
+        valor: number
+        categoria_id: string | null
+        dia_cobranca: number | null
+        ativa: boolean | null
+        data_inicio: string
+        data_fim: string | null
+        descricao: string | null
+        created_at: string
+        updated_at: string
+      }
+      Insert: {
+        id?: string
+        user_id: string
+        cartao_id: string
+        titulo: string
+        valor: number
+        categoria_id?: string | null
+        dia_cobranca?: number | null
+        ativa?: boolean | null
+        data_inicio: string
+        data_fim?: string | null
+        descricao?: string | null
+        created_at?: string
+        updated_at?: string
+      }
+      Update: {
+        id?: string
+        user_id?: string
+        cartao_id?: string
+        titulo?: string
+        valor?: number
+        categoria_id?: string | null
+        dia_cobranca?: number | null
+        ativa?: boolean | null
+        data_inicio?: string
+        data_fim?: string | null
+        descricao?: string | null
+        created_at?: string
+        updated_at?: string
+      }
+      Relationships: [
+        {
+          foreignKeyName: "compras_recorrentes_cartao_cartao_id_fkey"
+          columns: ["cartao_id"]
+          referencedRelation: "cartoes"
+          referencedColumns: ["id"]
+        },
+        {
+          foreignKeyName: "compras_recorrentes_cartao_categoria_id_fkey"
+          columns: ["categoria_id"]
+          referencedRelation: "categorias"
+          referencedColumns: ["id"]
+        },
+        {
+          foreignKeyName: "compras_recorrentes_cartao_user_id_fkey"
+          columns: ["user_id"]
+          referencedRelation: "profiles"
+          referencedColumns: ["id"]
+        }
+      ]
+    }
       parcelas: {
         Row: {
           conta_id: string

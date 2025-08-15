@@ -145,70 +145,164 @@ const GerenciarCategorias = () => {
     setLoadingRelatorio(true)
 
     try {
-      // Buscar parcelas do período com categoria
-      let query = supabase
+      const dataInicio = new Date(filtros.ano, filtros.mes - 1, 1)
+      const dataFim = new Date(filtros.ano, filtros.mes, 0, 23, 59, 59)
+
+      // 1. Buscar CONTAS (apenas recorrentes)
+      let queryContas = supabase
+        .from("contas")
+        .select(`
+          id,
+          titulo,
+          valor_total,
+          created_at,
+          tipo_conta,
+          categoria_id,
+          cartao_id,
+          categorias (
+            id,
+            nome,
+            cor
+          ),
+          cartoes (
+            nome
+          )
+        `)
+        .eq("user_id", user.id)
+        .eq("tipo_conta", "recorrente")
+        .not("categoria_id", "is", null)
+
+      // 2. Buscar PARCELAS
+      let queryParcelas = supabase
         .from("parcelas")
         .select(`
           id,
           valor_parcela,
           data_vencimento,
           status,
+          contas!inner (
+            id,
+            titulo,
+            tipo_conta,
+            cartao_id,
+            user_id,
+            categoria_id,
+            cartoes (
+              nome
+            ),
+            categorias (
+              id,
+              nome,
+              cor
+            )
+          )
+        `)
+        .eq("contas.user_id", user.id)
+        .not("contas.categoria_id", "is", null)
+        .gte("data_vencimento", dataInicio.toISOString().slice(0, 10))
+        .lte("data_vencimento", dataFim.toISOString().slice(0, 10))
+
+      // 3. Buscar COMPRAS_RECORRENTES_CARTAO
+      let queryComprasRecorrentes = supabase
+        .from("compras_recorrentes_cartao")
+        .select(`
+          id,
+          titulo,
+          valor,
+          data_inicio,
           categoria_id,
+          cartao_id,
+          ativa,
           categorias (
             id,
             nome,
             cor
           ),
-          contas (
-            id,
-            titulo,
-            tipo_conta,
-            cartao_id,
-            cartoes (
-              nome
-            )
+          cartoes (
+            nome
           )
         `)
+        .eq("user_id", user.id)
         .not("categoria_id", "is", null)
+        .eq("ativa", true)
+        .gte("data_inicio", dataInicio.toISOString().slice(0, 10))
+        .lte("data_inicio", dataFim.toISOString().slice(0, 10))
 
-      // Aplicar filtros de período
-      const dataInicio = new Date(filtros.ano, filtros.mes - 1, 1)
-      const dataFim = new Date(filtros.ano, filtros.mes, 0, 23, 59, 59)
-
-      query = query
-        .gte("data_vencimento", dataInicio.toISOString().slice(0, 10))
-        .lte("data_vencimento", dataFim.toISOString().slice(0, 10))
-
-      // Remover filtros de tipo
-      // Remover tiposPermitidos e uso de filtros.tipos
-
-      // Aplicar filtro de cartão
+      // Aplicar filtros de cartão
       if (filtros.cartao_id) {
-        query = query.eq("contas.cartao_id", filtros.cartao_id)
+        queryContas = queryContas.eq("cartao_id", filtros.cartao_id)
+        queryParcelas = queryParcelas.eq("contas.cartao_id", filtros.cartao_id)
+        queryComprasRecorrentes = queryComprasRecorrentes.eq("cartao_id", filtros.cartao_id)
       }
 
-      // Aplicar filtro de categoria
+      // Aplicar filtros de categoria
       if (filtros.categoria_id) {
-        query = query.eq("categoria_id", filtros.categoria_id)
+        queryContas = queryContas.eq("categoria_id", filtros.categoria_id)
+        queryParcelas = queryParcelas.eq("contas.categoria_id", filtros.categoria_id)
+        queryComprasRecorrentes = queryComprasRecorrentes.eq("categoria_id", filtros.categoria_id)
       }
 
-      const { data: parcelas, error } = await query
+      // Executar todas as queries em paralelo
+      const [
+        { data: contas, error: errorContas },
+        { data: parcelas, error: errorParcelas },
+        { data: comprasRecorrentes, error: errorComprasRecorrentes }
+      ] = await Promise.all([queryContas, queryParcelas, queryComprasRecorrentes])
 
-      if (error) {
-        console.error("Erro na query:", error)
-        throw error
+      if (errorContas || errorParcelas || errorComprasRecorrentes) {
+        console.error("Erro nas queries:", { errorContas, errorParcelas, errorComprasRecorrentes })
+        throw errorContas || errorParcelas || errorComprasRecorrentes
       }
 
       // Processar dados para o relatório
       const relatorioMap = new Map<string, RelatorioCategoria>()
       let totalGeral = 0
 
-      parcelas?.forEach((parcela: any) => {
-        if (!parcela.categorias || !parcela.contas) return
+      // Processar CONTAS
+      contas?.forEach((conta: any) => {
+        if (!conta.categorias) return
 
-        const categoriaId = parcela.categoria_id
-        const categoriaNome = parcela.categorias.nome
-        const categoriaCor = parcela.categorias.cor
+        const categoriaId = conta.categoria_id
+        const categoriaNome = conta.categorias.nome
+        const categoriaCor = conta.categorias.cor
+        const valor = conta.valor_total
+
+        totalGeral += valor
+
+        if (!relatorioMap.has(categoriaId)) {
+          relatorioMap.set(categoriaId, {
+            categoria_id: categoriaId,
+            categoria_nome: categoriaNome,
+            categoria_cor: categoriaCor,
+            valor_total: 0,
+            quantidade: 0,
+            percentual: 0,
+            tendencia: "stable",
+            variacao_percentual: 0,
+            transacoes: [],
+          })
+        }
+
+        const item = relatorioMap.get(categoriaId)!
+        item.valor_total += valor
+        item.quantidade += 1
+        item.transacoes.push({
+          id: conta.id,
+          titulo: conta.titulo,
+          valor: valor,
+          data: conta.created_at,
+          tipo: conta.tipo_conta,
+          cartao_nome: conta.cartoes?.nome,
+        })
+      })
+
+      // Processar PARCELAS
+      parcelas?.forEach((parcela: any) => {
+        if (!parcela.contas?.categorias || !parcela.contas) return
+
+        const categoriaId = parcela.contas.categoria_id
+        const categoriaNome = parcela.contas.categorias.nome
+        const categoriaCor = parcela.contas.categorias.cor
         const valor = parcela.valor_parcela
 
         totalGeral += valor
@@ -240,6 +334,43 @@ const GerenciarCategorias = () => {
         })
       })
 
+      // Processar COMPRAS_RECORRENTES_CARTAO
+      comprasRecorrentes?.forEach((compra: any) => {
+        if (!compra.categorias) return
+
+        const categoriaId = compra.categoria_id
+        const categoriaNome = compra.categorias.nome
+        const categoriaCor = compra.categorias.cor
+        const valor = compra.valor
+
+        totalGeral += valor
+
+        if (!relatorioMap.has(categoriaId)) {
+          relatorioMap.set(categoriaId, {
+            categoria_id: categoriaId,
+            categoria_nome: categoriaNome,
+            categoria_cor: categoriaCor,
+            valor_total: 0,
+            quantidade: 0,
+            percentual: 0,
+            tendencia: "stable",
+            variacao_percentual: 0,
+            transacoes: [],
+          })
+        }
+
+        const item = relatorioMap.get(categoriaId)!
+        item.valor_total += valor
+        item.quantidade += 1
+        item.transacoes.push({
+          id: compra.id,
+          titulo: compra.titulo,
+          valor: valor,
+          data: compra.data_inicio,
+          tipo: "compra_recorrente",
+          cartao_nome: compra.cartoes?.nome,
+        })
+      })  
       // Calcular percentuais e tendências
       const relatorioArray = Array.from(relatorioMap.values()).map((item) => ({
         ...item,
