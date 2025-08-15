@@ -2303,11 +2303,12 @@ const Faturas = () => {
                             <div className="flex items-center space-x-3">
                               <p
                                 className={`font-semibold ${
-                                  lancamento.tipo === "compra" ? "text-white" : "text-emerald-400"
+                                  lancamento.tipo === "compra" 
+                                    ? (lancamento.valor >= 0 ? "text-white" : "text-white")
+                                    : "text-white"
                                 }`}
                               >
-                                {lancamento.tipo === "compra" ? "+" : ""}
-                                {Math.abs(lancamento.valor).toLocaleString("pt-BR", {
+                                {lancamento.valor.toLocaleString("pt-BR", {
                                   style: "currency",
                                   currency: "BRL",
                                 })}
