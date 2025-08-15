@@ -13,7 +13,8 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { calcularVencimentoCompra, calcularCicloAtual, estaNoCiclo } from "../lib/ciclos-cartao"
+import { calcularVencimentoCompra, calcularCicloAtual, getStatusFatura, calcularProximoVencimento } from "../lib/faturas"
+import { getVencimentoFatura} from "../lib/faturas"
 import {
   ArrowLeft,
   CreditCard,
@@ -218,83 +219,42 @@ const NovaContaParcelada: React.FC = () => {
       return "aberta"
     }
 
-    // Se for uma conta parcelada já em andamento (parcela inicial > 1), 
-    // marcar faturas passadas como "paga"
+    // Se for uma conta parcelada já em andamento, marcar faturas passadas como "paga"
     if (parcelaInicial > 1) {
       const dataVencimentoFatura = new Date(anoFatura, mesFatura - 1, cartao.dia_vencimento || 1)
-      
       if (dataVencimentoFatura < hoje) {
         return "paga"
       }
     }
 
-    // USAR A MESMA LÓGICA DO FATURAS.TSX:
-    // Simular uma compra no meio do mês da fatura para descobrir seu ciclo correto
-    const melhorDia = cartao.melhor_dia_compra
+    const diaFechamento = cartao.melhor_dia_compra
     const diaVencimento = cartao.dia_vencimento || 1
+    const dataVencimentoFatura = new Date(anoFatura, mesFatura - 1, diaVencimento)
     
-    // Simular uma compra no dia 15 do mês da fatura
-    const compraSimulada = new Date(anoFatura, mesFatura - 1, 15)
-    
-    // Calcular quando essa compra venceria
-    const vencimentoCalculado = calcularVencimentoCompra(
-      melhorDia,
+    return getStatusFatura(
+      diaFechamento,
       diaVencimento,
-      compraSimulada
+      hoje,
+      dataVencimentoFatura,
+      0, // valorPago
+      1  // valorTotal (dummy para não ser "paga")
     )
-    
-    // Data de vencimento real da fatura
-    const vencimentoRealFatura = new Date(anoFatura, mesFatura - 1, diaVencimento)
-    
-    // Se o vencimento calculado não bate com o real, tentar um mês anterior
-    let dataCompraCorreta = compraSimulada
-    if (vencimentoCalculado.getTime() !== vencimentoRealFatura.getTime()) {
-      // Tentar mês anterior
-      const compraAnterior = new Date(anoFatura, mesFatura - 2, 15)
-      const vencimentoAnterior = calcularVencimentoCompra(
-        melhorDia,
-        diaVencimento,
-        compraAnterior
-      )
-      
-      if (vencimentoAnterior.getTime() === vencimentoRealFatura.getTime()) {
-        dataCompraCorreta = compraAnterior
-      }
-    }
-    
-    // Agora calcular o ciclo baseado na compra correta
-    const cicloFatura = calcularCicloAtual(melhorDia, dataCompraCorreta)
-    
-    // Comparar onde estamos em relação ao ciclo da fatura
-    // Normalizar as datas para ignorar horários
-    const hojeSemHorario = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
-    const inicioSemHorario = new Date(cicloFatura.inicio.getFullYear(), cicloFatura.inicio.getMonth(), cicloFatura.inicio.getDate())
-    const fimSemHorario = new Date(cicloFatura.fim.getFullYear(), cicloFatura.fim.getMonth(), cicloFatura.fim.getDate())
-    
-    if (hojeSemHorario < inicioSemHorario) {
-      return "prevista"
-    }
-    
-    if (hojeSemHorario >= inicioSemHorario && hojeSemHorario <= fimSemHorario) {
-      return "aberta"
-    }
-    
-    return "fechada"
   }
 
   function calcularProximaFatura(cartao: any) {
-    if (!cartao || !cartao.dia_vencimento) {
-      return ""
-    }
-
-    const dataVencimento = calcularVencimentoCompra(
-      cartao.melhor_dia_compra || cartao.dia_vencimento,
-      cartao.dia_vencimento,
-      new Date(),
-    )
-
-    return dataVencimento.toISOString().slice(0, 10)
+  if (!cartao || !cartao.dia_vencimento) {
+    return ""
   }
+
+  const diaFechamento = cartao.melhor_dia_compra || cartao.dia_vencimento
+  const dataVencimento = getVencimentoFatura(
+    diaFechamento,
+    cartao.dia_vencimento,
+    new Date(),
+  )
+
+  return dataVencimento.toISOString().slice(0, 10)
+}
 
   useEffect(() => {
     if (tipoParcelamento === "cartao" && cartaoId) {

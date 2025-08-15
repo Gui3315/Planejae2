@@ -1676,67 +1676,27 @@ const Faturas = () => {
     valorTotal: number,
   ): "aberta" | "fechada" | "paga" | "prevista" => {
     // Se já foi totalmente paga
-    if (valorPago >= valorTotal) {
+    if (valorPago >= valorTotal && valorTotal > 0) {
       return "paga"
     }
 
-    // Se não tem melhor dia configurado, considera sempre aberta
+    // Se não tem melhor dia configurado, usar lógica simples baseada no vencimento
     if (!melhorDiaCompra) {
+      if (hoje > dataVencimentoFatura) {
+        return "fechada"
+      }
       return "aberta"
     }
 
-    
-    // Uma fatura que vence em setembro representa compras feitas em um período anterior
-    // Vamos calcular qual ciclo atual baseado no melhor dia de compra
-    const cicloAtual = calcularCicloAtual(melhorDiaCompra, hoje)
-
-    // USAR A MESMA LÓGICA DO NOVA_CONTA_PARCELADA.TSX QUE ESTAVA FUNCIONANDO:
-    // Simular uma compra no meio do mês da fatura para descobrir seu ciclo correto
-    const anoVencimento = dataVencimentoFatura.getFullYear()
-    const mesVencimento = dataVencimentoFatura.getMonth() + 1
-    
-    // Simular uma compra no dia 15 do mês da fatura
-    const compraSimulada = new Date(anoVencimento, mesVencimento - 1, 15)
-    
-    // Calcular quando essa compra venceria
-    const vencimentoCalculado = calcularVencimentoCompra(
+    // Usar a função getStatusFatura da biblioteca faturas.ts para consistência
+    return getStatusFatura(
       melhorDiaCompra,
       diaVencimento,
-      compraSimulada
+      hoje,
+      dataVencimentoFatura,
+      valorPago,
+      valorTotal
     )
-    
-    // Se o vencimento calculado não bate com o real, tentar um mês anterior
-    let dataCompraCorreta = compraSimulada
-    if (vencimentoCalculado.getTime() !== dataVencimentoFatura.getTime()) {
-      // Tentar mês anterior
-      const compraAnterior = new Date(anoVencimento, mesVencimento - 2, 15)
-      const vencimentoAnterior = calcularVencimentoCompra(
-        melhorDiaCompra,
-        diaVencimento,
-        compraAnterior
-      )
-      
-      if (vencimentoAnterior.getTime() === dataVencimentoFatura.getTime()) {
-        dataCompraCorreta = compraAnterior
-      }
-    }
-    
-    // Agora calcular o ciclo baseado na compra correta
-    const cicloFatura = calcularCicloAtual(melhorDiaCompra, dataCompraCorreta)
-
-    // Determinar status baseado na relação entre hoje e o ciclo da fatura
-    // Normalizar as datas para ignorar horários (mesma lógica do NovaContaParcelada.tsx)
-    const hojeSemHorario = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate())
-    const inicioSemHorario = new Date(cicloFatura.inicio.getFullYear(), cicloFatura.inicio.getMonth(), cicloFatura.inicio.getDate())
-    const fimSemHorario = new Date(cicloFatura.fim.getFullYear(), cicloFatura.fim.getMonth(), cicloFatura.fim.getDate())
-    
-    if (hojeSemHorario < inicioSemHorario) {
-      return "prevista"
-    } else if (hojeSemHorario >= inicioSemHorario && hojeSemHorario <= fimSemHorario) {
-      return "aberta"
-    } else {
-      return "fechada"
-    }
   }
 
   const getCorStatusFatura = (status: "aberta" | "fechada" | "paga" | "prevista") => {

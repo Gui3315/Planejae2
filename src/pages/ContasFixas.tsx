@@ -102,7 +102,7 @@ const ContasFixas = () => {
       carregarContasFixas(user.id)
       carregarCategorias(user.id)
     }
-  }, [user])
+  }, [user?.id])
 
   const carregarContasFixas = async (userId: string) => {
     try {

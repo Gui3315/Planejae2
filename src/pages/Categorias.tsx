@@ -59,7 +59,7 @@ const Categorias = () => {
     if (user) {
       carregarCategorias(user.id)
     }
-  }, [user])
+  }, [user?.id])
 
   // Função para carregar categorias do usuário
   const carregarCategorias = async (userId: string) => {

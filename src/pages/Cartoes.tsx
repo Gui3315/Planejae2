@@ -4,7 +4,7 @@ import { atualizarStatusFaturas } from "./Faturas"
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,7 +50,7 @@ import {
   Info,
 } from "lucide-react"
 import { getStatusFatura, getVencimentoFatura } from "../lib/faturas"
-import { getPeriodoFatura } from "../lib/faturas"
+import { calcularVencimentoCompra, calcularCicloAtual, calcularProximoVencimento } from "../lib/ciclos-cartao"
 
 interface Cartao {
   id: string
@@ -101,9 +101,12 @@ const Cartoes = () => {
   const [toast, setToast] = useState<{ type: "success" | "error"; text: string } | null>(null)
   const navigate = useNavigate()
 
+  const cartoesCarregados = useRef(false)
+
   useEffect(() => {
-    if (user) {
+    if (user && !cartoesCarregados.current) {
       carregarCartoes(user.id)
+      cartoesCarregados.current = true
     }
   }, [user])
 
@@ -256,12 +259,12 @@ const Cartoes = () => {
       setModalOpen(false)
       if (user) {
         await carregarCartoes(user.id)
+        cartoesCarregados.current = true
         
         // 🔄 ATUALIZAR STATUS DAS FATURAS após alteração do melhor_dia_compra
         // ✅ Esta é a implementação que garante que o status das faturas seja atualizado
         // sempre que o melhor dia de compra for alterado
         try {
-          console.log('🔄 Atualizando status das faturas após alteração do cartão...')
           // Buscar cartões atualizados do banco para garantir dados frescos
           const { data: cartoesAtualizados, error: errorCartoes } = await supabase
             .from("cartoes")
@@ -271,7 +274,6 @@ const Cartoes = () => {
           if (!errorCartoes && cartoesAtualizados) {
             // Chamar a função que recalcula e atualiza os status no banco
             await atualizarStatusFaturas(cartoesAtualizados, user.id)
-            console.log('✅ Status das faturas atualizado com sucesso!')
             mostrarToast("success", "Cartão salvo e status das faturas atualizado!")
           }
         } catch (error) {
@@ -359,63 +361,58 @@ const Cartoes = () => {
   }, 0)
   const totalLimiteUsado = totalLimiteOriginal - totalLimiteDisponivel
 
-  const calcularProximoVencimento = () => {
-    if (cartoesAtivos.length === 0) return null
-    const hoje = new Date()
-    const mesAtual = hoje.getMonth()
-    const anoAtual = hoje.getFullYear()
-    const diaAtual = hoje.getDate()
+  const calcularProximoVencimentoCartoes = () => {
+  if (cartoesAtivos.length === 0) return null
+  
+  let proximoVencimento = null
+  let cartaoProximo = null
+  let valorFatura = 0
+  let faturaFechada = false
 
-    let proximoVencimento = null
-    let cartaoProximo = null
-    let valorFatura = 0
-    let faturaFechada = false
+  cartoesAtivos.forEach((cartao) => {
+    const diaFechamento = cartao.melhor_dia_compra || cartao.dia_vencimento
+    
+    // 🔧 USAR FUNÇÃO CORRIGIDA para calcular próximo vencimento
+    const dataVencimento = calcularProximoVencimento(diaFechamento, cartao.dia_vencimento)
 
-    cartoesAtivos.forEach((cartao) => {
-      const melhorDiaCompra = cartao.melhor_dia_compra || cartao.dia_vencimento
-      // Correção: calcular vencimento considerando regra:
-      // se dia_vencimento > dia de fechamento (fim do ciclo), usar mesmo mês do fechamento;
-      // caso contrário, mês seguinte.
-      const referencia = new Date(anoAtual, mesAtual, diaAtual)
-      const { fim } = getPeriodoFatura(melhorDiaCompra, referencia)
-      let mesVenc = fim.getMonth()
-      let anoVenc = fim.getFullYear()
-      if (cartao.dia_vencimento <= fim.getDate()) {
-        mesVenc += 1
-        if (mesVenc > 11) { mesVenc = 0; anoVenc += 1 }
-      }
-      const dataVencimento = new Date(anoVenc, mesVenc, cartao.dia_vencimento)
+    if (!proximoVencimento || dataVencimento < proximoVencimento) {
+      proximoVencimento = dataVencimento
+      cartaoProximo = cartao
 
-      if (!proximoVencimento || dataVencimento < proximoVencimento) {
-        proximoVencimento = dataVencimento
-        cartaoProximo = cartao
+      // 🔧 USAR FUNÇÃO CORRIGIDA para calcular ciclo atual
+      const cicloAtual = calcularCicloAtual(diaFechamento)
+      const hoje = new Date()
+      
+      // Verifica se a fatura já fechou (hoje passou do fim do ciclo)
+      faturaFechada = hoje > cicloAtual.fim
 
-        faturaFechada =
-          getStatusFatura(melhorDiaCompra, cartao.dia_vencimento, new Date(), dataVencimento, 0, 0) === "fechada"
-
-        // Correção: usar valor_parcela e filtrar parcelas do mês/ano do vencimento
-        valorFatura = parcelas
-          .filter((p) => p.status === "pendente")
-          .filter((p) => {
-            const conta = contasParceladas.find((c) => c.id === p.conta_id)
-            if (!conta || conta.cartao_id !== cartao.id) return false
-            const dataParcela = new Date(p.data_vencimento)
-            return (
-              dataParcela.getMonth() === dataVencimento.getMonth() &&
-              dataParcela.getFullYear() === dataVencimento.getFullYear()
-            )
-          })
-          .reduce((total, p) => total + (p.valor_parcela || p.valor || 0), 0)
-      }
-    })
-
-    return {
-      cartao: cartaoProximo,
-      data: proximoVencimento,
-      valor: valorFatura,
-      fechada: faturaFechada,
+      // Calcular valor da fatura para este vencimento
+      valorFatura = parcelas
+        .filter((p) => p.status === "pendente")
+        .filter((p) => {
+          const conta = contasParceladas.find((c) => c.id === p.conta_id)
+          if (!conta || conta.cartao_id !== cartao.id) return false
+          
+          // 🔧 CORRIGIR: usar calcularVencimentoCompra para determinar em qual fatura a parcela cai
+          const dataCompra = new Date(p.data_vencimento) // ou p.created_at se disponível
+          const vencimentoParcela = calcularVencimentoCompra(diaFechamento, cartao.dia_vencimento, dataCompra)
+          
+          return (
+            vencimentoParcela.getMonth() === dataVencimento.getMonth() &&
+            vencimentoParcela.getFullYear() === dataVencimento.getFullYear()
+          )
+        })
+        .reduce((total, p) => total + (p.valor_parcela || p.valor || 0), 0)
     }
+  })
+
+  return {
+    cartao: cartaoProximo,
+    data: proximoVencimento,
+    valor: valorFatura,
+    fechada: faturaFechada,
   }
+}
 
   const calcularCategoriasMaisUsadas = () => {
     const categoriasCount: { [key: string]: number } = {}
@@ -453,7 +450,7 @@ const Cartoes = () => {
     return null
   }
 
-  const proximoVencimento = calcularProximoVencimento()
+  const proximoVencimento = calcularProximoVencimentoCartoes()
   const categoriasMaisUsadas = calcularCategoriasMaisUsadas()
   const cartaoMaisUsado = calcularCartaoMaisUsado()
 
@@ -870,8 +867,9 @@ const Cartoes = () => {
             </div>
             <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
               <p className="text-blue-300 text-xs">
-                <Info className="w-3 h-3 inline mr-1" />O melhor dia é quando você deve fazer compras para ter mais
-                tempo até o vencimento da fatura.
+                <Info className="w-3 h-3 inline mr-1" />
+                O "melhor dia" é o dia de fechamento da fatura. Compras feitas após este dia vão para a próxima fatura, 
+                dando mais tempo para pagamento.
               </p>
             </div>
             <DialogFooter>

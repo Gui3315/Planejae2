@@ -3,48 +3,52 @@
 
 /**
  * Calcula o vencimento da fatura para uma compra específica
- * @param melhorDiaCompra Dia em que o ciclo "vira" (ex: 5)
- * @param diaVencimento Dia do vencimento (ex: 10)
+ * @param diaFechamento Dia do fechamento da fatura (ex: 26, 4, 14)
+ * @param diaVencimento Dia do vencimento (ex: 2, 10, 20)
  * @param dataCompra Data da compra
  * @returns Data de vencimento da fatura
  */
 export function calcularVencimentoCompra(
-  melhorDiaCompra: number,
+  diaFechamento: number,
   diaVencimento: number,
   dataCompra: Date
 ): Date {
   const ano = dataCompra.getFullYear();
   const mes = dataCompra.getMonth();
-  const dia = dataCompra.getDate();
+  const diaCompra = dataCompra.getDate();
 
+  let mesFechamento: number;
+  let anoFechamento: number;
   let mesVencimento: number;
   let anoVencimento: number;
 
-  // 🔖 LÓGICA CORRETA:
-  // Se a compra foi feita ANTES do melhor dia, vence no mês atual
-  // Se a compra foi feita DEPOIS do melhor dia, vence no próximo mês
-  if (dia < melhorDiaCompra) {
-    // Compra antes do "virar" → vence no mês atual
-    mesVencimento = mes;
-    anoVencimento = ano;
+  // Determina em qual ciclo a compra se enquadra
+  if (diaCompra <= diaFechamento) {
+    // Compra feita até o dia de fechamento → entra na fatura atual
+    mesFechamento = mes;
+    anoFechamento = ano;
   } else {
-    // Compra depois do "virar" → vence no próximo mês
-    mesVencimento = mes + 1;
-    anoVencimento = ano;
+    // Compra feita após o fechamento → entra na próxima fatura
+    mesFechamento = mes + 1;
+    anoFechamento = ano;
     
     // Ajustar se passar de dezembro
-    if (mesVencimento > 11) {
-      mesVencimento = 0;
-      anoVencimento += 1;
+    if (mesFechamento > 11) {
+      mesFechamento = 0;
+      anoFechamento += 1;
     }
   }
-  
-  // 🔖 CORREÇÃO ESPECIAL: Para melhor dia >= 20, sempre vence no próximo mês
-  if (melhorDiaCompra >= 20) {
-    mesVencimento = mes + 1;
-    anoVencimento = ano;
+
+  // Calcular o vencimento baseado no fechamento
+  if (diaVencimento > diaFechamento) {
+    // Vencimento no mesmo mês do fechamento
+    mesVencimento = mesFechamento;
+    anoVencimento = anoFechamento;
+  } else {
+    // Vencimento no mês seguinte ao fechamento
+    mesVencimento = mesFechamento + 1;
+    anoVencimento = anoFechamento;
     
-    // Ajustar se passar de dezembro
     if (mesVencimento > 11) {
       mesVencimento = 0;
       anoVencimento += 1;
@@ -55,33 +59,55 @@ export function calcularVencimentoCompra(
 }
 
 /**
- * Calcula o período do ciclo atual baseado no melhor dia de compra
- * @param melhorDiaCompra Dia em que o ciclo "vira"
+ * Calcula o período da fatura atual baseado na data de fechamento
+ * @param diaFechamento Dia do fechamento da fatura
  * @param dataReferencia Data de referência (ex: hoje)
- * @returns { inicio: Date, fim: Date }
+ * @returns { inicio: Date, fim: Date, fechamento: Date }
  */
 export function calcularCicloAtual(
-  melhorDiaCompra: number,
+  diaFechamento: number,
   dataReferencia: Date = new Date()
-): { inicio: Date, fim: Date } {
+): { inicio: Date, fim: Date, fechamento: Date } {
   const ano = dataReferencia.getFullYear();
   const mes = dataReferencia.getMonth();
   const dia = dataReferencia.getDate();
 
-  let inicio: Date;
-  let fim: Date;
+  let inicioMes: number;
+  let inicioAno: number;
+  let fechamentoMes: number;
+  let fechamentoAno: number;
 
-  if (dia < melhorDiaCompra) {
-    // Estamos no ciclo que começou no mês anterior
-    inicio = new Date(ano, mes - 1, melhorDiaCompra);
-    fim = new Date(ano, mes, melhorDiaCompra - 1);
+  if (dia <= diaFechamento) {
+    // Estamos no período que fecha neste mês
+    inicioMes = mes - 1;
+    inicioAno = ano;
+    fechamentoMes = mes;
+    fechamentoAno = ano;
+    
+    // Ajustar se for janeiro
+    if (inicioMes < 0) {
+      inicioMes = 11;
+      inicioAno -= 1;
+    }
   } else {
-    // Estamos no ciclo que começou neste mês
-    inicio = new Date(ano, mes, melhorDiaCompra);
-    fim = new Date(ano, mes + 1, melhorDiaCompra - 1);
+    // Estamos no período que fecha no próximo mês
+    inicioMes = mes;
+    inicioAno = ano;
+    fechamentoMes = mes + 1;
+    fechamentoAno = ano;
+    
+    // Ajustar se passar de dezembro
+    if (fechamentoMes > 11) {
+      fechamentoMes = 0;
+      fechamentoAno += 1;
+    }
   }
 
-  return { inicio, fim };
+  const inicio = new Date(inicioAno, inicioMes, diaFechamento + 1);
+  const fechamento = new Date(fechamentoAno, fechamentoMes, diaFechamento);
+  const fim = fechamento; // O fim é o próprio fechamento
+
+  return { inicio, fim, fechamento };
 }
 
 /**
@@ -96,38 +122,56 @@ export function estaNoCiclo(data: Date, ciclo: { inicio: Date, fim: Date }): boo
 
 /**
  * Calcula o próximo vencimento de um cartão
- * @param melhorDiaCompra Dia em que o ciclo "vira"
+ * @param diaFechamento Dia do fechamento da fatura
  * @param diaVencimento Dia do vencimento
  * @param dataReferencia Data de referência (ex: hoje)
  * @returns Data do próximo vencimento
  */
 export function calcularProximoVencimento(
-  melhorDiaCompra: number,
+  diaFechamento: number,
   diaVencimento: number,
   dataReferencia: Date = new Date()
 ): Date {
-  const ciclo = calcularCicloAtual(melhorDiaCompra, dataReferencia);
+  const ano = dataReferencia.getFullYear();
+  const mes = dataReferencia.getMonth();
+  const dia = dataReferencia.getDate();
 
-  // Se a data atual ainda está dentro do ciclo, usa esse ciclo como base
-  const aindaNoCicloAtual = estaNoCiclo(dataReferencia, ciclo);
+  let proximoFechamentoMes: number;
+  let proximoFechamentoAno: number;
 
-  let anoVenc: number;
-  let mesVenc: number;
-
-  if (aindaNoCicloAtual) {
-    // vencimento deste ciclo
-    anoVenc = ciclo.fim.getFullYear();
-    mesVenc = ciclo.fim.getMonth();
+  if (dia <= diaFechamento) {
+    // Próximo fechamento é neste mês
+    proximoFechamentoMes = mes;
+    proximoFechamentoAno = ano;
   } else {
-    // vencimento do próximo ciclo
-    anoVenc = ciclo.fim.getFullYear();
-    mesVenc = ciclo.fim.getMonth() + 1;
-
-    if (mesVenc > 11) {
-      mesVenc = 0;
-      anoVenc += 1;
+    // Próximo fechamento é no próximo mês
+    proximoFechamentoMes = mes + 1;
+    proximoFechamentoAno = ano;
+    
+    if (proximoFechamentoMes > 11) {
+      proximoFechamentoMes = 0;
+      proximoFechamentoAno += 1;
     }
   }
 
-  return new Date(anoVenc, mesVenc, diaVencimento);
+  // Calcular vencimento baseado no fechamento
+  let vencimentoMes: number;
+  let vencimentoAno: number;
+
+  if (diaVencimento > diaFechamento) {
+    // Vencimento no mesmo mês do fechamento
+    vencimentoMes = proximoFechamentoMes;
+    vencimentoAno = proximoFechamentoAno;
+  } else {
+    // Vencimento no mês seguinte ao fechamento
+    vencimentoMes = proximoFechamentoMes + 1;
+    vencimentoAno = proximoFechamentoAno;
+    
+    if (vencimentoMes > 11) {
+      vencimentoMes = 0;
+      vencimentoAno += 1;
+    }
+  }
+
+  return new Date(vencimentoAno, vencimentoMes, diaVencimento);
 }
