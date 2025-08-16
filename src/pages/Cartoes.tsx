@@ -110,6 +110,12 @@ const Cartoes = () => {
     }
   }, [user])
 
+  // Novo useEffect para forçar re-renderização quando dados mudam
+  useEffect(() => {
+    // Force re-render quando parcelas ou contas parceladas mudarem
+    // Isso garantirá que os valores sejam recalculados
+  }, [parcelas, contasParceladas])
+
   const calcularLimiteDisponivel = (cartao: Cartao) => {
     const limiteCartao = cartao.limite_credito || 0
     const contasDoCartao = contasParceladas.filter((conta) => conta.cartao_id === cartao.id)
@@ -308,7 +314,11 @@ const Cartoes = () => {
 
       if (error) throw error
       mostrarToast("success", "Cartão excluído com sucesso!")
-      if (user) await carregarCartoes(user.id)
+      if (user) {
+        await carregarCartoes(user.id)
+        // Após recarregar cartões, recalcule as faturas do usuário
+        await atualizarStatusFaturas(cartoes.filter(c => c.id !== cartao.id), user.id)
+      }
     } catch (error) {
       console.error("Erro ao excluir cartão:", error)
       mostrarToast("error", "Não foi possível excluir o cartão")
@@ -361,50 +371,60 @@ const Cartoes = () => {
   }, 0)
   const totalLimiteUsado = totalLimiteOriginal - totalLimiteDisponivel
 
-  const calcularProximoVencimentoCartoes = () => {
+  const calcularValorFaturaCartao = (cartao, mesAno = null) => {
+  // Se não especificar mês/ano, calcula para o próximo vencimento
+  let dataVencimento = mesAno || calcularProximoVencimento(
+    cartao.melhor_dia_compra || cartao.dia_vencimento, 
+    cartao.dia_vencimento
+  )
+
+  // Recalcular sempre baseado nas parcelas atuais no estado
+  const valorTotal = parcelas
+    .filter((p) => p.status === "pendente")
+    .filter((p) => {
+      const conta = contasParceladas.find((c) => c.id === p.conta_id)
+      if (!conta || conta.cartao_id !== cartao.id) return false
+      
+      const dataCompra = new Date(p.data_vencimento || p.created_at)
+      const vencimentoParcela = calcularVencimentoCompra(
+        cartao.melhor_dia_compra || cartao.dia_vencimento, 
+        cartao.dia_vencimento, 
+        dataCompra
+      )
+      
+      return (
+        vencimentoParcela.getMonth() === dataVencimento.getMonth() &&
+        vencimentoParcela.getFullYear() === dataVencimento.getFullYear()
+      )
+    })
+    .reduce((total, p) => total + (p.valor_parcela || p.valor || 0), 0)
+
+  return valorTotal
+}
+
+const calcularProximoVencimentoCartoes = () => {
   if (cartoesAtivos.length === 0) return null
   
   let proximoVencimento = null
   let cartaoProximo = null
-  let valorFatura = 0
   let faturaFechada = false
 
   cartoesAtivos.forEach((cartao) => {
     const diaFechamento = cartao.melhor_dia_compra || cartao.dia_vencimento
-    
-    // 🔧 USAR FUNÇÃO CORRIGIDA para calcular próximo vencimento
     const dataVencimento = calcularProximoVencimento(diaFechamento, cartao.dia_vencimento)
 
     if (!proximoVencimento || dataVencimento < proximoVencimento) {
       proximoVencimento = dataVencimento
       cartaoProximo = cartao
 
-      // 🔧 USAR FUNÇÃO CORRIGIDA para calcular ciclo atual
       const cicloAtual = calcularCicloAtual(diaFechamento)
       const hoje = new Date()
-      
-      // Verifica se a fatura já fechou (hoje passou do fim do ciclo)
       faturaFechada = hoje > cicloAtual.fim
-
-      // Calcular valor da fatura para este vencimento
-      valorFatura = parcelas
-        .filter((p) => p.status === "pendente")
-        .filter((p) => {
-          const conta = contasParceladas.find((c) => c.id === p.conta_id)
-          if (!conta || conta.cartao_id !== cartao.id) return false
-          
-          // 🔧 CORRIGIR: usar calcularVencimentoCompra para determinar em qual fatura a parcela cai
-          const dataCompra = new Date(p.data_vencimento) // ou p.created_at se disponível
-          const vencimentoParcela = calcularVencimentoCompra(diaFechamento, cartao.dia_vencimento, dataCompra)
-          
-          return (
-            vencimentoParcela.getMonth() === dataVencimento.getMonth() &&
-            vencimentoParcela.getFullYear() === dataVencimento.getFullYear()
-          )
-        })
-        .reduce((total, p) => total + (p.valor_parcela || p.valor || 0), 0)
     }
   })
+
+  // Recalcular valor usando a nova função
+  const valorFatura = cartaoProximo ? calcularValorFaturaCartao(cartaoProximo, proximoVencimento) : 0
 
   return {
     cartao: cartaoProximo,

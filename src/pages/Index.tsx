@@ -166,12 +166,12 @@ const Index = () => {
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
   ];
 
-  // Carregar dados quando o usuário estiver disponível
+  // Carregar dados quando o usuário estiver disponível ou mês mudar
   useEffect(() => {
     if (user) {
       carregarDados(user.id);
     }
-  }, [user]);
+  }, [user, mesSelecionado, anoSelecionado]);
 
   //  NOVO: Recarregar dados automaticamente a cada 30 segundos
   useEffect(() => {
@@ -283,9 +283,9 @@ const Index = () => {
         setContasParceladas(parceladas);
       }
 
-      //  CORREÇÃO: Carregar apenas parcelas do mês atual para gastos
-      const inicioMes = new Date(anoAtual, mesAtual, 1);
-      const fimMes = new Date(anoAtual, mesAtual + 1, 0);
+      //  CORREÇÃO: Carregar apenas parcelas do mês selecionado para gastos
+      const inicioMes = new Date(anoSelecionado, mesSelecionado, 1);
+      const fimMes = new Date(anoSelecionado, mesSelecionado + 1, 0);
       
       const { data: parcelasData } = await supabase
         .from('parcelas')
@@ -304,13 +304,12 @@ const Index = () => {
         setTodasParcelas(todasParcelasData);
       }
 
-      //  NOVO: Carregar faturas em aberto E fechadas para cálculo de gastos
+      //  NOVO: Carregar TODAS as faturas para todos os meses (não filtrar por data aqui)
       const { data: faturasData } = await supabase
         .from('faturas_cartao' as any)
         .select('*')
-        .eq('user_id', userId)
-        .or('status.eq.aberta,status.eq.fechada,status.eq.paga');
-      
+        .eq('user_id', userId);
+
       if (faturasData) {
         setFaturasEmAberto(faturasData as unknown as FaturaCartao[]);
       }
@@ -349,9 +348,9 @@ const Index = () => {
       if (contasCarneData && contasCarneData.length > 0) {
         const contaIds = contasCarneData.map(c => c.id);
         
-        //  CORREÇÃO: Buscar parcelas do mês atual apenas
-        const inicioMes = new Date(anoAtual, mesAtual, 1);
-        const fimMes = new Date(anoAtual, mesAtual + 1, 0);
+        //  CORREÇÃO: Buscar parcelas do mês selecionado apenas
+        const inicioMes = new Date(anoSelecionado, mesSelecionado, 1);
+        const fimMes = new Date(anoSelecionado, mesSelecionado + 1, 0);
         
         const { data: parcelasCarneData } = await supabase
           .from('parcelas')
@@ -387,18 +386,26 @@ const Index = () => {
     return categoria?.ignorarsaldo === true;
   };
 
-  // 1. TODAS as Faturas do mês selecionado
-  const totalFaturasDoMes = faturasEmAberto.filter(fatura => {
-    const dataVencimento = new Date(fatura.data_vencimento);
+  // 1. Faturas de cartão do mês (baseado nas parcelas e categorias)
+  const totalFaturasDoMes = parcelas.filter(parcela => {
+    const dataVencimento = new Date(parcela.data_vencimento);
     const mesVencimento = dataVencimento.getMonth();
     const anoVencimento = dataVencimento.getFullYear();
-
-  return mesVencimento === mesSelecionado && anoVencimento === anoSelecionado;
-
-}).reduce((total, fatura) => {
-  // Somar valor total da fatura (ignorando categorias será feito depois se necessário)
-  return total + fatura.valor_total;
-}, 0);
+    
+    if (mesVencimento !== mesSelecionado || anoVencimento !== anoSelecionado) {
+      return false;
+    }
+    
+    // Verificar se é parcela de cartão (conta com cartao_id)
+    const conta = contas.find(c => c.id === parcela.conta_id);
+    if (!conta || !conta.cartao_id) {
+      return false;
+    }
+    
+    // Ignorar categorias marcadas
+    const ignorada = conta && isIgnoradaNoSaldo(conta.categoria_id);
+    return !ignorada;
+  }).reduce((total, parcela) => total + parcela.valor_parcela, 0);
 
   // 2. TODAS as Contas fixas do mês (ignorar apenas categorias marcadas, não status de pagamento)
   const totalContasFixas = contasFixas.reduce((total, conta) => {
@@ -430,8 +437,39 @@ const Index = () => {
     return !ignorada;
   }).reduce((total, parcela) => total + parcela.valor_parcela, 0);
 
-  // 4. Total geral de gastos
-  const totalGastosMes = totalFaturasDoMes + totalContasFixas + totalParcelasCarne;
+  // 4. Compras recorrentes de cartão do mês (ignorar categorias marcadas)
+  const totalComprasRecorrentes = comprasRecorrentes.filter(compra => {
+    // Verificar se a compra recorrente está ativa
+    if (!compra.ativa) return false;
+    
+    // Verificar se a cobrança cai no mês selecionado
+    const dataCobranca = new Date(anoSelecionado, mesSelecionado, compra.dia_cobranca);
+    const mesCobranca = dataCobranca.getMonth();
+    const anoCobranca = dataCobranca.getFullYear();
+    
+    if (mesCobranca !== mesSelecionado || anoCobranca !== anoSelecionado) {
+      return false;
+    }
+    
+    // Ignorar categorias marcadas
+    const ignorada = isIgnoradaNoSaldo(compra.categoria_id);
+    return !ignorada;
+  }).reduce((total, compra) => total + compra.valor, 0);
+
+  // 5. Pagamentos antecipados de faturas (subtrair dos gastos)
+  const pagamentosAntecipados = faturasEmAberto.filter(fatura => {
+    const [ano, mes] = fatura.mes_referencia.split('-').map(Number);
+    
+    if (mes - 1 !== mesSelecionado || ano !== anoSelecionado) {
+      return false;
+    }
+    
+    // Verificar se tem pagamento registrado
+    return fatura.valor_pago > 0;
+  }).reduce((total, fatura) => total + fatura.valor_pago, 0);
+
+  // 6. Total geral de gastos (subtraindo pagamentos antecipados)
+  const totalGastosMes = totalFaturasDoMes + totalContasFixas + totalParcelasCarne + totalComprasRecorrentes - pagamentosAntecipados;
 
   const saldoDisponivel = salarioMensal - totalGastosMes;
   const percentualGasto = salarioMensal > 0 ? (totalGastosMes / salarioMensal) * 100 : 0;

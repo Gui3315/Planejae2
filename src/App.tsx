@@ -14,6 +14,7 @@ import Renda from "./pages/Renda";
 import NotFound from "./pages/NotFound";
 import GerenciarCategorias from "./pages/gerenciar-categorias";
 import ResetPassword from "./pages/reset-password";
+import LandingPage from './pages/LandingPage';
 
 const queryClient = new QueryClient();
 
@@ -24,16 +25,17 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
+          <Route path="/landingpage" element={<LandingPage />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/gerenciar-categorias" element={<GerenciarCategorias />} />
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
           <Route path="/cartoes" element={<Cartoes />} />
           <Route path="/contas-fixas" element={<ContasFixas />} />
-                  <Route path="/nova-conta-parcelada" element={<NovaContaParcelada />} />
-        <Route path="/categorias" element={<Categorias />} />
-        <Route path="/faturas" element={<Faturas />} />
-        <Route path="/renda" element={<Renda />} />
+          <Route path="/nova-conta-parcelada" element={<NovaContaParcelada />} />
+          <Route path="/categorias" element={<Categorias />} />
+          <Route path="/faturas" element={<Faturas />} />
+          <Route path="/renda" element={<Renda />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>
