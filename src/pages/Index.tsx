@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 // ...existing code...
 interface Categoria {
   id: string;
@@ -126,6 +126,7 @@ const Index = () => {
   const [categorias, setCategorias] = useState<Categoria[]>([]); // <-- Adicionado estado para categorias
   const [comprasRecorrentes, setComprasRecorrentes] = useState<CompraRecorrente[]>([]); // <-- Adicionado estado para compras recorrentes
   const [error, setError] = useState<string | null>(null);
+  const [dadosCarregados, setDadosCarregados] = useState(false);
   const navigate = useNavigate();
 
   // Estado do mês atual
@@ -169,7 +170,7 @@ const Index = () => {
   // Carregar dados quando o usuário estiver disponível ou mês mudar
   useEffect(() => {
     if (user) {
-      carregarDados(user.id);
+      carregarDadosCompletos(user.id);
     }
   }, [user, mesSelecionado, anoSelecionado]);
 
@@ -178,7 +179,7 @@ const Index = () => {
     if (!user) return;
 
     const interval = setInterval(() => {
-      carregarDados(user.id);
+      carregarDadosCompletos(user.id);
     }, 30000); // 30 segundos
 
     return () => clearInterval(interval);
@@ -188,7 +189,7 @@ const Index = () => {
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && user) {
-        carregarDados(user.id);
+        carregarDadosCompletos(user.id);
       }
     };
 
@@ -222,163 +223,170 @@ const Index = () => {
     return limiteCartao - limiteUsado;
   };
 
-  const carregarDados = async (userId: string) => {
-    try {
-      // Carregar perfil
-      const { data: profileData, error: profileError } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', userId)
-        .single();
-      
-      if (profileError) {
-        console.error('Erro ao carregar perfil:', profileError);
-        if (profileError.code === 'PGRST301') {
-          // Usuário não autorizado, redirecionar para login
-          navigate('/auth');
-          return;
-        }
+  const carregarDadosCompletos = async (userId: string) => {
+  try {
+    setDadosCarregados(false);
+    // Carregar perfil
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .single();
+    
+    if (profileError) {
+      console.error('Erro ao carregar perfil:', profileError);
+      if (profileError.code === 'PGRST301') {
+        // Usuário não autorizado, redirecionar para login
+        navigate('/auth');
+        return;
       }
+    }
+    
+    if (profileData) setProfile(profileData);
+
+    // Carregar tipos de renda
+    const { data: tiposRendaData } = await supabase
+      .from('tipos_renda' as any)
+      .select('*')
+      .eq('user_id', userId)
+      .eq('ativo', true);
+    
+    if (tiposRendaData) setTiposRenda(tiposRendaData as unknown as TipoRenda[]);
+
+    // Carregar cartões
+    const { data: cartoesData } = await supabase
+      .from('cartoes')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('ativo', true);
+    
+    if (cartoesData) setCartoes(cartoesData);
+
+    // Carregar categorias
+    const { data: categoriasData } = await supabase
+      .from('categorias')
+      .select('*')
+      .eq('user_id', userId);
+    if (categoriasData) {
+      setCategorias(categoriasData);
+    }
+
+    // Carregar contas
+    const { data: contasData } = await supabase
+      .from('contas')
+      .select('*')
+      .eq('user_id', userId);
+    
+    if (contasData) {
+      setContas(contasData);
       
-      if (profileData) setProfile(profileData);
+      // Separar contas parceladas para cálculo de limite
+      const parceladas = contasData.filter(conta => conta.tipo_conta === 'parcelada' && conta.cartao_id);
+      setContasParceladas(parceladas);
+    }
 
-      // Carregar tipos de renda
-      const { data: tiposRendaData } = await supabase
-        .from('tipos_renda' as any)
-        .select('*')
-        .eq('user_id', userId)
-        .eq('ativo', true);
+    // Carregar apenas parcelas do mês selecionado para gastos
+    const inicioMes = new Date(anoSelecionado, mesSelecionado, 1);
+    const fimMes = new Date(anoSelecionado, mesSelecionado + 1, 0);
+    
+    const { data: parcelasData } = await supabase
+      .from('parcelas')
+      .select('*')
+      .gte('data_vencimento', inicioMes.toISOString().split('T')[0])
+      .lte('data_vencimento', fimMes.toISOString().split('T')[0]);
+    
+    if (parcelasData) setParcelas(parcelasData);
+
+    // Carregar TODAS as parcelas separadamente para cálculo de limite
+    const { data: todasParcelasData } = await supabase
+      .from('parcelas')
+      .select('*');
+    
+    if (todasParcelasData) {
+      setTodasParcelas(todasParcelasData);
+    }
+
+    // Carregar TODAS as faturas para todos os meses
+    const { data: faturasData } = await supabase
+      .from('faturas_cartao' as any)
+      .select('*')
+      .eq('user_id', userId);
+
+    if (faturasData) {
+      setFaturasEmAberto(faturasData as unknown as FaturaCartao[]);
+    }
+
+    // Carregar contas fixas para gastos
+    const { data: contasFixasData } = await supabase
+      .from('contas')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('tipo_conta', 'recorrente');
+    
+    if (contasFixasData) {
+      setContasFixas(contasFixasData);
+    }
+
+    // Carregar compras recorrentes para gastos
+    const { data: comprasRecorrentesData } = await (supabase as any)
+      .from('compras_recorrentes_cartao')
+      .select('*')
+      .eq('user_id', userId)
+      .eq('ativa', true);
+    
+    if (comprasRecorrentesData) {
+      setComprasRecorrentes(comprasRecorrentesData as unknown as CompraRecorrente[]);
+    }
+
+    // Carregar parcelas de carnê (parcelas que não são de cartão)
+    // Primeiro buscar contas parceladas sem cartão
+    const { data: contasCarneData } = await supabase
+      .from('contas')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('tipo_conta', 'parcelada')
+      .is('cartao_id', null);
+    
+    if (contasCarneData && contasCarneData.length > 0) {
+      const contaIds = contasCarneData.map(c => c.id);
       
-      if (tiposRendaData) setTiposRenda(tiposRendaData as unknown as TipoRenda[]);
-
-      // Carregar cartões
-      const { data: cartoesData } = await supabase
-        .from('cartoes')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('ativo', true);
-      
-      if (cartoesData) setCartoes(cartoesData);
-
-      // Carregar categorias
-      const { data: categoriasData } = await supabase
-        .from('categorias')
-        .select('*')
-        .eq('user_id', userId);
-      if (categoriasData) {
-        setCategorias(categoriasData);
-      }
-
-      // Carregar contas
-      const { data: contasData } = await supabase
-        .from('contas')
-        .select('*')
-        .eq('user_id', userId);
-      
-      if (contasData) {
-        setContas(contasData);
-        
-        // Separar contas parceladas para cálculo de limite
-        const parceladas = contasData.filter(conta => conta.tipo_conta === 'parcelada' && conta.cartao_id);
-        setContasParceladas(parceladas);
-      }
-
-      //  CORREÇÃO: Carregar apenas parcelas do mês selecionado para gastos
+      // Buscar parcelas do mês selecionado apenas
       const inicioMes = new Date(anoSelecionado, mesSelecionado, 1);
       const fimMes = new Date(anoSelecionado, mesSelecionado + 1, 0);
       
-      const { data: parcelasData } = await supabase
+      const { data: parcelasCarneData } = await supabase
         .from('parcelas')
         .select('*')
+        .in('conta_id', contaIds)
+        .eq('status', 'pendente')
         .gte('data_vencimento', inicioMes.toISOString().split('T')[0])
         .lte('data_vencimento', fimMes.toISOString().split('T')[0]);
       
-      if (parcelasData) setParcelas(parcelasData);
-
-      //  CORREÇÃO: Carregar TODAS as parcelas separadamente para cálculo de limite
-      const { data: todasParcelasData } = await supabase
-        .from('parcelas')
-        .select('*');
-      
-      if (todasParcelasData) {
-        setTodasParcelas(todasParcelasData);
+      if (parcelasCarneData) {
+        setParcelasCarne(parcelasCarneData);
       }
-
-      //  NOVO: Carregar TODAS as faturas para todos os meses (não filtrar por data aqui)
-      const { data: faturasData } = await supabase
-        .from('faturas_cartao' as any)
-        .select('*')
-        .eq('user_id', userId);
-
-      if (faturasData) {
-        setFaturasEmAberto(faturasData as unknown as FaturaCartao[]);
-      }
-
-      //  NOVO: Carregar contas fixas para gastos
-      const { data: contasFixasData } = await supabase
-        .from('contas')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('tipo_conta', 'recorrente');
-      
-      if (contasFixasData) {
-        setContasFixas(contasFixasData);
-      }
-
-      //  NOVO: Carregar compras recorrentes para gastos
-      const { data: comprasRecorrentesData } = await (supabase as any)
-        .from('compras_recorrentes_cartao')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('ativa', true);
-      
-      if (comprasRecorrentesData) {
-        setComprasRecorrentes(comprasRecorrentesData as unknown as CompraRecorrente[]);
-      }
-
-      //  NOVO: Carregar parcelas de carnê (parcelas que não são de cartão)
-      // Primeiro buscar contas parceladas sem cartão
-      const { data: contasCarneData } = await supabase
-        .from('contas')
-        .select('id')
-        .eq('user_id', userId)
-        .eq('tipo_conta', 'parcelada')
-        .is('cartao_id', null);
-      
-      if (contasCarneData && contasCarneData.length > 0) {
-        const contaIds = contasCarneData.map(c => c.id);
-        
-        //  CORREÇÃO: Buscar parcelas do mês selecionado apenas
-        const inicioMes = new Date(anoSelecionado, mesSelecionado, 1);
-        const fimMes = new Date(anoSelecionado, mesSelecionado + 1, 0);
-        
-        const { data: parcelasCarneData } = await supabase
-          .from('parcelas')
-          .select('*')
-          .in('conta_id', contaIds)
-          .eq('status', 'pendente')
-          .gte('data_vencimento', inicioMes.toISOString().split('T')[0])
-          .lte('data_vencimento', fimMes.toISOString().split('T')[0]);
-        
-        if (parcelasCarneData) {
-          setParcelasCarne(parcelasCarneData);
-        }
-      }
-
-    } catch (error: any) {
-      console.error('Erro ao carregar dados:', error);
-      setError(error?.message || 'Erro ao carregar dados. Verifique sua conexão ou tente novamente.');
     }
-  };
+
+  setDadosCarregados(true);
+
+  } catch (error: any) {
+    console.error('Erro ao carregar dados:', error);
+    setError(error?.message || 'Erro ao carregar dados. Verifique sua conexão ou tente novamente.');
+    setDadosCarregados(false);
+  }
+};
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
   };
 
-  // Cálculos financeiros
-  const rendaTotal = tiposRenda.reduce((total, tipo) => total + tipo.valor, 0);
-  const salarioMensal = rendaTotal; // Usar apenas a nova estrutura de renda
-  
+  // Cálculos financeiros usando useMemo para otimização
+  const rendaTotal = useMemo(() => 
+    tiposRenda.reduce((total, tipo) => total + tipo.valor, 0), 
+    [tiposRenda]
+  );
+  const salarioMensal = rendaTotal;
+
   // Função para verificar se a categoria deve ser ignorada no saldo
   const isIgnoradaNoSaldo = (categoriaId: string | undefined | null) => {
     if (!categoriaId) return false;
@@ -386,93 +394,99 @@ const Index = () => {
     return categoria?.ignorarsaldo === true;
   };
 
-  // 1. Faturas de cartão do mês (baseado nas parcelas e categorias)
-  const totalFaturasDoMes = parcelas.filter(parcela => {
-    const dataVencimento = new Date(parcela.data_vencimento);
-    const mesVencimento = dataVencimento.getMonth();
-    const anoVencimento = dataVencimento.getFullYear();
-    
-    if (mesVencimento !== mesSelecionado || anoVencimento !== anoSelecionado) {
-      return false;
-    }
-    
-    // Verificar se é parcela de cartão (conta com cartao_id)
-    const conta = contas.find(c => c.id === parcela.conta_id);
-    if (!conta || !conta.cartao_id) {
-      return false;
-    }
-    
-    // Ignorar categorias marcadas
-    const ignorada = conta && isIgnoradaNoSaldo(conta.categoria_id);
-    return !ignorada;
-  }).reduce((total, parcela) => total + parcela.valor_parcela, 0);
+  // Cálculo otimizado de gastos
+  const totalGastosMes = useMemo(() => {
+  // Só calcular se os dados estiverem completamente carregados
+  if (!dadosCarregados) {
+    return 0;
+  }
 
-  // 2. TODAS as Contas fixas do mês (ignorar apenas categorias marcadas, não status de pagamento)
-  const totalContasFixas = contasFixas.reduce((total, conta) => {
-    const ignorada = isIgnoradaNoSaldo(conta.categoria_id);
-    if (!ignorada) {
-      return total + conta.valor_total;
-    }
-    return total;
-  }, 0);
+    // 1. Faturas de cartão do mês
+    const totalFaturasDoMes = parcelas.filter(parcela => {
+      const dataVencimento = new Date(parcela.data_vencimento);
+      const mesVencimento = dataVencimento.getMonth();
+      const anoVencimento = dataVencimento.getFullYear();
+      
+      if (mesVencimento !== mesSelecionado || anoVencimento !== anoSelecionado) {
+        return false;
+      }
+      
+      const conta = contas.find(c => c.id === parcela.conta_id);
+      if (!conta || !conta.cartao_id) {
+        return false;
+      }
+      
+      const ignorada = conta && isIgnoradaNoSaldo(conta.categoria_id);
+      return !ignorada;
+    }).reduce((total, parcela) => total + parcela.valor_parcela, 0);
 
-  // 3. TODAS as Parcelas de carnê do mês (ignorar apenas categorias marcadas, não status)
+    // 2. Contas fixas do mês
+    const totalContasFixas = contasFixas.reduce((total, conta) => {
+      const ignorada = isIgnoradaNoSaldo(conta.categoria_id);
+      if (!ignorada) {
+        return total + conta.valor_total;
+      }
+      return total;
+    }, 0);
+
+    // 3. Parcelas de carnê do mês
     const totalParcelasCarne = parcelas.filter(parcela => {
       const dataVencimento = new Date(parcela.data_vencimento);
       const mesVencimento = dataVencimento.getMonth();
       const anoVencimento = dataVencimento.getFullYear();
       
       if (mesVencimento !== mesSelecionado || anoVencimento !== anoSelecionado) {
-      return false;
-    }
-    
-    // Verificar se é carnê (conta sem cartao_id)
-    const conta = contas.find(c => c.id === parcela.conta_id);
-    if (!conta || conta.cartao_id) {
-      return false;
-    }
-    
-    // Ignorar categorias marcadas
-    const ignorada = conta && isIgnoradaNoSaldo(conta.categoria_id);
-    return !ignorada;
-  }).reduce((total, parcela) => total + parcela.valor_parcela, 0);
+        return false;
+      }
+      
+      const conta = contas.find(c => c.id === parcela.conta_id);
+      if (!conta || conta.cartao_id) {
+        return false;
+      }
+      
+      const ignorada = conta && isIgnoradaNoSaldo(conta.categoria_id);
+      return !ignorada;
+    }).reduce((total, parcela) => total + parcela.valor_parcela, 0);
 
-  // 4. Compras recorrentes de cartão do mês (ignorar categorias marcadas)
-  const totalComprasRecorrentes = comprasRecorrentes.filter(compra => {
-    // Verificar se a compra recorrente está ativa
-    if (!compra.ativa) return false;
-    
-    // Verificar se a cobrança cai no mês selecionado
-    const dataCobranca = new Date(anoSelecionado, mesSelecionado, compra.dia_cobranca);
-    const mesCobranca = dataCobranca.getMonth();
-    const anoCobranca = dataCobranca.getFullYear();
-    
-    if (mesCobranca !== mesSelecionado || anoCobranca !== anoSelecionado) {
-      return false;
-    }
-    
-    // Ignorar categorias marcadas
-    const ignorada = isIgnoradaNoSaldo(compra.categoria_id);
-    return !ignorada;
-  }).reduce((total, compra) => total + compra.valor, 0);
+    // 4. Compras recorrentes de cartão do mês
+    const totalComprasRecorrentes = comprasRecorrentes.filter(compra => {
+      if (!compra.ativa) return false;
+      
+      const dataCobranca = new Date(anoSelecionado, mesSelecionado, compra.dia_cobranca);
+      const mesCobranca = dataCobranca.getMonth();
+      const anoCobranca = dataCobranca.getFullYear();
+      
+      if (mesCobranca !== mesSelecionado || anoCobranca !== anoSelecionado) {
+        return false;
+      }
+      
+      const ignorada = isIgnoradaNoSaldo(compra.categoria_id);
+      return !ignorada;
+    }).reduce((total, compra) => total + compra.valor, 0);
 
-  // 5. Pagamentos antecipados de faturas (subtrair dos gastos)
-  const pagamentosAntecipados = faturasEmAberto.filter(fatura => {
-    const [ano, mes] = fatura.mes_referencia.split('-').map(Number);
-    
-    if (mes - 1 !== mesSelecionado || ano !== anoSelecionado) {
-      return false;
-    }
-    
-    // Verificar se tem pagamento registrado
-    return fatura.valor_pago > 0;
-  }).reduce((total, fatura) => total + fatura.valor_pago, 0);
+    // 5. Pagamentos antecipados de faturas
+    const pagamentosAntecipados = faturasEmAberto.filter(fatura => {
+      const [ano, mes] = fatura.mes_referencia.split('-').map(Number);
+      
+      if (mes - 1 !== mesSelecionado || ano !== anoSelecionado) {
+        return false;
+      }
+      
+      return fatura.valor_pago > 0;
+    }).reduce((total, fatura) => total + fatura.valor_pago, 0);
 
-  // 6. Total geral de gastos (subtraindo pagamentos antecipados)
-  const totalGastosMes = totalFaturasDoMes + totalContasFixas + totalParcelasCarne + totalComprasRecorrentes - pagamentosAntecipados;
+    return totalFaturasDoMes + totalContasFixas + totalParcelasCarne + totalComprasRecorrentes - pagamentosAntecipados;
+  }, [dadosCarregados, parcelas, contasFixas, comprasRecorrentes, faturasEmAberto, contas, categorias, mesSelecionado, anoSelecionado]);
 
-  const saldoDisponivel = salarioMensal - totalGastosMes;
-  const percentualGasto = salarioMensal > 0 ? (totalGastosMes / salarioMensal) * 100 : 0;
+  const saldoDisponivel = useMemo(() => 
+    salarioMensal - totalGastosMes, 
+    [salarioMensal, totalGastosMes]
+  );
+
+  const percentualGasto = useMemo(() => 
+    salarioMensal > 0 ? (totalGastosMes / salarioMensal) * 100 : 0, 
+    [totalGastosMes, salarioMensal]
+  );
 
   //  NOVO: Contas vencendo em breve (próximos 7 dias)
   //  CORREÇÃO: Usar data local do Brasil (UTC-3)
