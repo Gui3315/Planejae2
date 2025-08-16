@@ -26,5 +26,15 @@
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    <script>
+    // ADICIONE antes do </body>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then(registrations => {
+        registrations.forEach(registration => {
+          registration.update();
+        });
+      });
+    }
+    </script>
   </body>
 </html>
